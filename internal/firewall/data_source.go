@@ -2,18 +2,17 @@ package firewall
 
 import (
 	"context"
-	"crypto/sha1"
-	"fmt"
 	"log"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+
 	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/merge"
 )
 
 const (
@@ -102,7 +101,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 func DataSource() *schema.Resource {
 	return &schema.Resource{
 		ReadContext: dataSourceHcloudFirewallRead,
-		Schema: datasourceutil.MergeSchema(
+		Schema: merge.Maps(
 			getCommonDataSchema(),
 			map[string]*schema.Schema{
 				"most_recent": {
@@ -146,7 +145,7 @@ func dataSourceHcloudFirewallRead(ctx context.Context, d *schema.ResourceData, m
 	if id, ok := d.GetOk("id"); ok {
 		i, _, err := client.Firewall.GetByID(ctx, id.(int))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if i == nil {
 			return diag.Errorf("no firewall found with id %d", id)
@@ -157,7 +156,7 @@ func dataSourceHcloudFirewallRead(ctx context.Context, d *schema.ResourceData, m
 	if name, ok := d.GetOk("name"); ok {
 		i, _, err := client.Firewall.GetByName(ctx, name.(string))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if i == nil {
 			return diag.Errorf("no firewall found with name %v", name)
@@ -172,7 +171,7 @@ func dataSourceHcloudFirewallRead(ctx context.Context, d *schema.ResourceData, m
 		opts := hcloud.FirewallListOpts{ListOpts: hcloud.ListOpts{LabelSelector: selector.(string)}}
 		allFirewalls, err := client.Firewall.AllWithOpts(ctx, opts)
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if len(allFirewalls) == 0 {
 			return diag.Errorf("no firewall found for selector %q", selector)
@@ -198,7 +197,7 @@ func dataSourceHcloudFirewallListRead(ctx context.Context, d *schema.ResourceDat
 	opts := hcloud.FirewallListOpts{ListOpts: hcloud.ListOpts{LabelSelector: selector}}
 	allFirewalls, err := client.Firewall.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	if _, ok := d.GetOk("most_recent"); ok {
@@ -212,7 +211,7 @@ func dataSourceHcloudFirewallListRead(ctx context.Context, d *schema.ResourceDat
 		tfFirewalls[i] = getFirewallAttributes(firewall)
 	}
 	d.Set("firewalls", tfFirewalls)
-	d.SetId(fmt.Sprintf("%x", sha1.Sum([]byte(strings.Join(ids, "")))))
+	d.SetId(datasourceutil.ListID(ids))
 
 	return nil
 }

@@ -1,19 +1,18 @@
 package placementgroup
 
 import (
-	"crypto/sha1"
-	"fmt"
 	"log"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
 	"golang.org/x/net/context"
+
+	"github.com/hetznercloud/hcloud-go/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/merge"
 )
 
 const (
@@ -29,6 +28,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 	return map[string]*schema.Schema{
 		"id": {
 			Type:     schema.TypeInt,
+			Computed: true,
 			Optional: true,
 		},
 		"name": {
@@ -38,6 +38,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 		},
 		"labels": {
 			Type:     schema.TypeMap,
+			Computed: true,
 			Optional: true,
 		},
 		"servers": {
@@ -49,6 +50,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 		},
 		"type": {
 			Type:     schema.TypeString,
+			Computed: true,
 			Optional: true,
 		},
 	}
@@ -57,7 +59,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 func DataSource() *schema.Resource {
 	return &schema.Resource{
 		ReadContext: dataSourceHcloudPlacementGroupRead,
-		Schema: datasourceutil.MergeSchema(
+		Schema: merge.Maps(
 			getCommonDataSchema(),
 			map[string]*schema.Schema{
 				"most_recent": {
@@ -101,7 +103,7 @@ func dataSourceHcloudPlacementGroupRead(ctx context.Context, d *schema.ResourceD
 	if id, ok := d.GetOk("id"); ok {
 		i, _, err := client.PlacementGroup.GetByID(ctx, id.(int))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if i == nil {
 			return diag.Errorf("no placement group found with id %d", id)
@@ -112,7 +114,7 @@ func dataSourceHcloudPlacementGroupRead(ctx context.Context, d *schema.ResourceD
 	if name, ok := d.GetOk("name"); ok {
 		i, _, err := client.PlacementGroup.GetByName(ctx, name.(string))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if i == nil {
 			return diag.Errorf("no placement group found with name %v", name)
@@ -126,7 +128,7 @@ func dataSourceHcloudPlacementGroupRead(ctx context.Context, d *schema.ResourceD
 		opts := hcloud.PlacementGroupListOpts{ListOpts: hcloud.ListOpts{LabelSelector: selector.(string)}}
 		allPlacementGroups, err := client.PlacementGroup.AllWithOpts(ctx, opts)
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if len(allPlacementGroups) == 0 {
 			return diag.Errorf("no placement group found for selector %q", selector)
@@ -152,7 +154,7 @@ func dataSourceHcloudPlacementGroupListRead(ctx context.Context, d *schema.Resou
 	opts := hcloud.PlacementGroupListOpts{ListOpts: hcloud.ListOpts{LabelSelector: selector.(string)}}
 	allPlacementGroups, err := client.PlacementGroup.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	if _, ok := d.GetOk("most_recent"); ok {
@@ -166,7 +168,7 @@ func dataSourceHcloudPlacementGroupListRead(ctx context.Context, d *schema.Resou
 		tfPlacementGroups[i] = getAttributes(firewall)
 	}
 	d.Set("placement_groups", tfPlacementGroups)
-	d.SetId(fmt.Sprintf("%x", sha1.Sum([]byte(strings.Join(ids, "")))))
+	d.SetId(datasourceutil.ListID(ids))
 
 	return nil
 }

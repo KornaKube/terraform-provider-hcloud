@@ -6,30 +6,24 @@ import (
 	"log"
 	"time"
 
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/firewall"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/placementgroup"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/primaryip"
-
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/snapshot"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/logging"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+
 	"github.com/hetznercloud/hcloud-go/hcloud"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/certificate"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/datacenter"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/firewall"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/floatingip"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/image"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/loadbalancer"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/location"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/network"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/placementgroup"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/primaryip"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/rdns"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/server"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/servertype"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/sshkey"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/snapshot"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/volume"
 )
 
@@ -48,7 +42,7 @@ func Provider() *schema.Provider {
 				Optional:    true,
 				DefaultFunc: schema.EnvDefaultFunc("HCLOUD_TOKEN", nil),
 				Description: "The Hetzner Cloud API token, can also be specified with the HCLOUD_TOKEN environment variable.",
-				ValidateFunc: func(val interface{}, key string) (warns []string, errs []error) {
+				ValidateFunc: func(val interface{}, key string) (warns []string, errs []error) { // nolint:revive
 					token := val.(string)
 					if len(token) != 64 {
 						errs = append(errs, errors.New("entered token is invalid (must be exactly 64 characters long)"))
@@ -68,6 +62,13 @@ func Provider() *schema.Provider {
 				Optional:    true,
 				Default:     "500ms",
 				Description: "The interval at which actions are polled by the client. Default `500ms`. Increase this interval if you run into rate limiting errors.",
+			},
+			"poll_function": {
+				Type:         schema.TypeString,
+				Optional:     true,
+				Default:      "exponential",
+				Description:  "The type of function to be used during the polling.",
+				ValidateFunc: validation.StringInSlice([]string{"constant", "exponential"}, false),
 			},
 		},
 		ResourcesMap: map[string]*schema.Resource{
@@ -90,7 +91,6 @@ func Provider() *schema.Provider {
 			server.NetworkResourceType:        server.NetworkResource(),
 			server.ResourceType:               server.Resource(),
 			snapshot.ResourceType:             snapshot.Resource(),
-			sshkey.ResourceType:               sshkey.Resource(),
 			volume.AttachmentResourceType:     volume.AttachmentResource(),
 			volume.ResourceType:               volume.Resource(),
 			placementgroup.ResourceType:       placementgroup.Resource(),
@@ -98,8 +98,6 @@ func Provider() *schema.Provider {
 		DataSourcesMap: map[string]*schema.Resource{
 			certificate.DataSourceType:        certificate.DataSource(),
 			certificate.DataSourceListType:    certificate.DataSourceList(),
-			datacenter.DataSourceListType:     datacenter.DataSourceList(),
-			datacenter.DataSourceType:         datacenter.DataSource(),
 			firewall.DataSourceType:           firewall.DataSource(),
 			firewall.DataSourceListType:       firewall.DataSourceList(),
 			floatingip.DataSourceType:         floatingip.DataSource(),
@@ -110,18 +108,12 @@ func Provider() *schema.Provider {
 			image.DataSourceListType:          image.DataSourceList(),
 			loadbalancer.DataSourceType:       loadbalancer.DataSource(),
 			loadbalancer.DataSourceListType:   loadbalancer.DataSourceList(),
-			location.DataSourceType:           location.DataSource(),
-			location.DataSourceListType:       location.DataSourceList(),
 			network.DataSourceType:            network.DataSource(),
 			network.DataSourceListType:        network.DataSourceList(),
 			placementgroup.DataSourceType:     placementgroup.DataSource(),
 			placementgroup.DataSourceListType: placementgroup.DataSourceList(),
 			server.DataSourceType:             server.DataSource(),
 			server.DataSourceListType:         server.DataSourceList(),
-			servertype.DataSourceType:         servertype.DataSource(),
-			servertype.DataSourceListType:     servertype.ServerTypesDataSource(),
-			sshkey.DataSourceType:             sshkey.DataSource(),
-			sshkey.DataSourceListType:         sshkey.DataSourceList(),
 			volume.DataSourceType:             volume.DataSource(),
 			volume.DataSourceListType:         volume.DataSourceList(),
 		},
@@ -140,9 +132,14 @@ func providerConfigure(_ context.Context, d *schema.ResourceData) (interface{}, 
 	if pollInterval, ok := d.GetOk("poll_interval"); ok {
 		pollInterval, err := time.ParseDuration(pollInterval.(string))
 		if err != nil {
-			return nil, hcclient.ErrorToDiag(err)
+			return nil, hcloudutil.ErrorToDiag(err)
 		}
-		opts = append(opts, hcloud.WithPollBackoffFunc(hcloud.ExponentialBackoff(2, pollInterval)))
+		pollFunction, ok := d.GetOk("poll_function")
+		if ok && pollFunction == "constant" {
+			opts = append(opts, hcloud.WithPollBackoffFunc(hcloud.ConstantBackoff(pollInterval)))
+		} else {
+			opts = append(opts, hcloud.WithPollBackoffFunc(hcloud.ExponentialBackoff(2, pollInterval)))
+		}
 	}
 	if logging.LogLevel() != "" {
 		opts = append(opts, hcloud.WithDebugWriter(log.Writer()))

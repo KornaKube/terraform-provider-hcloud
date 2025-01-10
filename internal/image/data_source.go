@@ -2,20 +2,18 @@ package image
 
 import (
 	"context"
-	"crypto/sha1"
-	"fmt"
 	"log"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+
 	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/merge"
 )
 
 const (
@@ -88,7 +86,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 func DataSource() *schema.Resource {
 	return &schema.Resource{
 		ReadContext: dataSourceHcloudImageRead,
-		Schema: datasourceutil.MergeSchema(
+		Schema: merge.Maps(
 			getCommonDataSchema(),
 			map[string]*schema.Schema{
 				"most_recent": {
@@ -169,7 +167,7 @@ func dataSourceHcloudImageRead(ctx context.Context, d *schema.ResourceData, m in
 	if id, ok := d.GetOk("id"); ok {
 		i, _, err := client.Image.GetByID(ctx, id.(int))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if i == nil {
 			return diag.Errorf("no image found with id %d", id)
@@ -222,7 +220,7 @@ func dataSourceHcloudImageRead(ctx context.Context, d *schema.ResourceData, m in
 
 	allImages, err := client.Image.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if len(allImages) == 0 {
 		return diag.Errorf("no image found matching the selection")
@@ -260,7 +258,7 @@ func dataSourceHcloudImageListRead(ctx context.Context, d *schema.ResourceData, 
 	}
 	allImages, err := client.Image.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	if _, ok := d.GetOk("most_recent"); ok {
@@ -274,7 +272,7 @@ func dataSourceHcloudImageListRead(ctx context.Context, d *schema.ResourceData, 
 		tfImages[i] = getImageAttributes(image)
 	}
 	d.Set("images", tfImages)
-	d.SetId(fmt.Sprintf("%x", sha1.Sum([]byte(strings.Join(ids, "")))))
+	d.SetId(datasourceutil.ListID(ids))
 
 	return nil
 }

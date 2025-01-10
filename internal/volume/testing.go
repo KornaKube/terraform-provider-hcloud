@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+
 	"github.com/hetznercloud/hcloud-go/hcloud"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/testsupport"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/testtemplate"
@@ -101,15 +102,6 @@ type RData struct {
 // TFID returns the resource identifier.
 func (d *RData) TFID() string {
 	return fmt.Sprintf("%s.%s", ResourceType, d.RName())
-}
-
-// Basic Volume for use in volume related test.
-//
-// Do not modify!
-var Basic = &RData{
-	Name:         "basic-volume",
-	LocationName: "nbg1",
-	Size:         10,
 }
 
 // RDataAttachment defines the fields for the "testdata/r/hcloud_volume_attachment" template.

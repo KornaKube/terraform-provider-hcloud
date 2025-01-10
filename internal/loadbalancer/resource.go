@@ -7,11 +7,11 @@ import (
 
 	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+
 	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
 )
 
 // ResourceType is the type name of the Hetzner Cloud Load Balancer resource.
@@ -88,9 +88,9 @@ func Resource() *schema.Resource {
 				Type:     schema.TypeMap,
 				Optional: true,
 				Computed: true,
-				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics {
+				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics { // nolint:revive
 					if ok, err := hcloud.ValidateResourceLabels(i.(map[string]interface{})); !ok {
-						return diag.Errorf(err.Error())
+						return diag.FromErr(err)
 					}
 					return nil
 				},
@@ -161,18 +161,18 @@ func resourceLoadBalancerCreate(ctx context.Context, d *schema.ResourceData, m i
 
 	res, _, err := c.LoadBalancer.Create(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	d.SetId(strconv.Itoa(res.LoadBalancer.ID))
-	if err := hcclient.WaitForAction(ctx, &c.Action, res.Action); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, res.Action); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	deleteProtection := d.Get("delete_protection").(bool)
 	if deleteProtection {
 		if err := setProtection(ctx, c, res.LoadBalancer, deleteProtection); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -187,7 +187,7 @@ func resourceLoadBalancerRead(ctx context.Context, d *schema.ResourceData, m int
 		if resourceLoadBalancerIsNotFound(err, d) {
 			return nil
 		}
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if loadBalancer == nil {
 		d.SetId("")
@@ -201,7 +201,7 @@ func resourceLoadBalancerUpdate(ctx context.Context, d *schema.ResourceData, m i
 	c := m.(*hcloud.Client)
 	loadBalancer, _, err := c.LoadBalancer.Get(ctx, d.Id())
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if loadBalancer == nil {
 		d.SetId("")
@@ -218,7 +218,7 @@ func resourceLoadBalancerUpdate(ctx context.Context, d *schema.ResourceData, m i
 			if resourceLoadBalancerIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -231,10 +231,10 @@ func resourceLoadBalancerUpdate(ctx context.Context, d *schema.ResourceData, m i
 			if resourceLoadBalancerIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
-		if err := hcclient.WaitForAction(ctx, &c.Action, action); err != nil {
-			return hcclient.ErrorToDiag(err)
+		if err := hcloudutil.WaitForAction(ctx, &c.Action, action); err != nil {
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -250,10 +250,10 @@ func resourceLoadBalancerUpdate(ctx context.Context, d *schema.ResourceData, m i
 			if resourceLoadBalancerIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
-		if err := hcclient.WaitForAction(ctx, &c.Action, action); err != nil {
-			return hcclient.ErrorToDiag(err)
+		if err := hcloudutil.WaitForAction(ctx, &c.Action, action); err != nil {
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -270,7 +270,7 @@ func resourceLoadBalancerUpdate(ctx context.Context, d *schema.ResourceData, m i
 			if resourceLoadBalancerIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -294,10 +294,10 @@ func resourceLoadBalancerUpdate(ctx context.Context, d *schema.ResourceData, m i
 					if resourceLoadBalancerIsNotFound(err, d) {
 						return nil
 					}
-					return hcclient.ErrorToDiag(err)
+					return hcloudutil.ErrorToDiag(err)
 				}
-				if err := hcclient.WaitForAction(ctx, &c.Action, action); err != nil {
-					return hcclient.ErrorToDiag(err)
+				if err := hcloudutil.WaitForAction(ctx, &c.Action, action); err != nil {
+					return hcloudutil.ErrorToDiag(err)
 				}
 			}
 		}
@@ -305,7 +305,7 @@ func resourceLoadBalancerUpdate(ctx context.Context, d *schema.ResourceData, m i
 		// now we get the loadbalancer again
 		loadBalancer, _, err := c.LoadBalancer.Get(ctx, d.Id())
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if loadBalancer == nil {
 			d.SetId("")
@@ -331,10 +331,10 @@ func resourceLoadBalancerUpdate(ctx context.Context, d *schema.ResourceData, m i
 					if resourceLoadBalancerIsNotFound(err, d) {
 						return nil
 					}
-					return hcclient.ErrorToDiag(err)
+					return hcloudutil.ErrorToDiag(err)
 				}
-				if err := hcclient.WaitForAction(ctx, &c.Action, action); err != nil {
-					return hcclient.ErrorToDiag(err)
+				if err := hcloudutil.WaitForAction(ctx, &c.Action, action); err != nil {
+					return hcloudutil.ErrorToDiag(err)
 				}
 			}
 		}
@@ -343,7 +343,7 @@ func resourceLoadBalancerUpdate(ctx context.Context, d *schema.ResourceData, m i
 	if d.HasChange("delete_protection") {
 		deletionProtection := d.Get("delete_protection").(bool)
 		if err := setProtection(ctx, c, loadBalancer, deletionProtection); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -356,7 +356,7 @@ func resourceLoadBalancerDelete(ctx context.Context, d *schema.ResourceData, m i
 
 	loadBalancer, _, err := client.LoadBalancer.Get(ctx, d.Id())
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if loadBalancer == nil {
 		d.SetId("")
@@ -368,14 +368,14 @@ func resourceLoadBalancerDelete(ctx context.Context, d *schema.ResourceData, m i
 			// loadBalancer has already been deleted
 			return nil
 		}
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return nil
 }
 
 func resourceLoadBalancerIsNotFound(err error, d *schema.ResourceData) bool {
-	if hcerr, ok := err.(hcloud.Error); ok && hcerr.Code == hcloud.ErrorCodeNotFound {
+	if hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
 		log.Printf("[WARN] Load Balancer (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return true
@@ -456,15 +456,15 @@ func algorithmToTerraformAlgorithm(algorithm hcloud.LoadBalancerAlgorithm) (tfAl
 	return
 }
 
-func setProtection(ctx context.Context, c *hcloud.Client, lb *hcloud.LoadBalancer, delete bool) error {
+func setProtection(ctx context.Context, c *hcloud.Client, lb *hcloud.LoadBalancer, deleteProtection bool) error {
 	action, _, err := c.LoadBalancer.ChangeProtection(ctx, lb,
 		hcloud.LoadBalancerChangeProtectionOpts{
-			Delete: &delete,
+			Delete: &deleteProtection,
 		},
 	)
 	if err != nil {
 		return err
 	}
 
-	return hcclient.WaitForAction(ctx, &c.Action, action)
+	return hcloudutil.WaitForAction(ctx, &c.Action, action)
 }

@@ -2,17 +2,15 @@ package loadbalancer
 
 import (
 	"context"
-	"crypto/sha1"
-	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+
 	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/merge"
 )
 
 const (
@@ -227,7 +225,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 func DataSource() *schema.Resource {
 	return &schema.Resource{
 		ReadContext: dataSourceHcloudLoadBalancerRead,
-		Schema: datasourceutil.MergeSchema(
+		Schema: merge.Maps(
 			getCommonDataSchema(),
 			map[string]*schema.Schema{
 				"with_selector": {
@@ -263,7 +261,7 @@ func dataSourceHcloudLoadBalancerRead(ctx context.Context, d *schema.ResourceDat
 	if id, ok := d.GetOk("id"); ok {
 		lb, _, err := client.LoadBalancer.GetByID(ctx, id.(int))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if lb == nil {
 			return diag.Errorf("no Load Balancer found with id %d", id)
@@ -274,7 +272,7 @@ func dataSourceHcloudLoadBalancerRead(ctx context.Context, d *schema.ResourceDat
 	if name, ok := d.GetOk("name"); ok {
 		lb, _, err := client.LoadBalancer.GetByName(ctx, name.(string))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if lb == nil {
 			return diag.Errorf("no Load Balancer found with name %s", name)
@@ -294,7 +292,7 @@ func dataSourceHcloudLoadBalancerRead(ctx context.Context, d *schema.ResourceDat
 		}
 		allLoadBalancers, err := client.LoadBalancer.AllWithOpts(ctx, opts)
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if len(allLoadBalancers) == 0 {
 			return diag.Errorf("no Load Balancer found for selector %q", selector)
@@ -316,7 +314,7 @@ func dataSourceHcloudLoadBalancerListRead(ctx context.Context, d *schema.Resourc
 	opts := hcloud.LoadBalancerListOpts{ListOpts: hcloud.ListOpts{LabelSelector: selector}}
 	allLoadBalancers, err := client.LoadBalancer.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	ids := make([]string, len(allLoadBalancers))
@@ -326,7 +324,7 @@ func dataSourceHcloudLoadBalancerListRead(ctx context.Context, d *schema.Resourc
 		tfLoadBalancers[i] = getLoadBalancerAttributes(loadBalancer)
 	}
 	d.Set("load_balancers", tfLoadBalancers)
-	d.SetId(fmt.Sprintf("%x", sha1.Sum([]byte(strings.Join(ids, "")))))
+	d.SetId(datasourceutil.ListID(ids))
 
 	return nil
 }

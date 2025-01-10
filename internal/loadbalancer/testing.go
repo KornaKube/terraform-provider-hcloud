@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+
 	"github.com/hetznercloud/hcloud-go/hcloud"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/certificate"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/network"
@@ -24,14 +25,6 @@ func init() {
 		},
 		F: Sweep,
 	})
-}
-
-// Basic Load Balancer for use in load balancer related test.
-//
-// Do not modify!
-var Basic = &RData{
-	Name:         "basic-load-balancer",
-	LocationName: "nbg1",
 }
 
 // Sweep removes all Load Balancers from the Hetzner Cloud backend.

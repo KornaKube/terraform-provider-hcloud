@@ -6,19 +6,16 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"text/template"
-	"time"
+
+	hcl "github.com/hashicorp/hcl/v2"
+	hclwrite "github.com/hashicorp/hcl/v2/hclwrite"
 )
-
-var rng *rand.Rand
-
-func init() {
-	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
-}
 
 // Data marks a struct as containing data for test templates.
 type Data interface {
@@ -69,7 +66,7 @@ func (ts *Manager) init(t *testing.T) {
 
 	ts.once.Do(func() {
 		if ts.RandInt == 0 {
-			ts.RandInt = rng.Int()
+			ts.RandInt = rand.Int() // nolint: gosec
 		}
 		if ts.RandName == "" {
 			ts.RandName = "r_" + strconv.Itoa(ts.RandInt)
@@ -113,14 +110,21 @@ func (ts *Manager) Render(t *testing.T, args ...interface{}) string {
 		if !ok {
 			t.Fatalf("args[%d]: string required: %T", i, args[i])
 		}
-		data, ok := args[i+1].(Data)
-		if !ok {
-			t.Fatalf("args[%d]: data required: %T", i+1, args[i+1])
+
+		var data any
+		switch arg := args[i+1].(type) {
+		case Data:
+			arg.SetRInt(ts.RandInt)
+			if arg.RName() == "" {
+				arg.SetRName(ts.RandName)
+			}
+			data = arg
+		case string:
+			data = arg
+		default:
+			t.Fatalf("args[%d]: data or string required: %T", i+1, args[i+1])
 		}
-		data.SetRInt(ts.RandInt)
-		if data.RName() == "" {
-			data.SetRName(ts.RandName)
-		}
+
 		tmpl := ts.tmpl.Lookup(tmplName)
 		if tmpl == nil {
 			t.Fatalf("template %s: not found", tmplName)
@@ -133,9 +137,31 @@ func (ts *Manager) Render(t *testing.T, args ...interface{}) string {
 		buf.WriteString("\n")
 	}
 
-	hcl := strings.TrimSpace(buf.String())
-	t.Logf("\n\nHCL:\n%s\n", addLineNumbers(hcl))
-	return hcl
+	definition := buf.String()
+
+	{
+		// Remove empty lines
+		lines := strings.Split(definition, "\n")
+		lines = slices.DeleteFunc(lines, func(line string) bool { return strings.TrimSpace(line) == "" })
+		definition = strings.Join(lines, "\n")
+	}
+
+	{
+		// Format HCL files
+		buf := bytes.NewBuffer(nil)
+		file, diags := hclwrite.ParseConfig([]byte(definition), "testing.tf", hcl.InitialPos)
+		if diags.HasErrors() {
+			t.Fatal(diags.Error())
+		}
+		if _, err := file.WriteTo(buf); err != nil {
+			t.Fatal(err)
+		}
+		definition = buf.String()
+	}
+
+	t.Logf("\n\nHCL:\n%s\n", addLineNumbers(definition))
+
+	return definition
 }
 
 func parseTmplGlob(t *testing.T, root *template.Template, prefix, glob string) {

@@ -2,17 +2,15 @@ package server
 
 import (
 	"context"
-	"crypto/sha1"
-	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+
 	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/merge"
 )
 
 const (
@@ -105,6 +103,10 @@ func getCommonDataSchema() map[string]*schema.Schema {
 			Type:     schema.TypeBool,
 			Computed: true,
 		},
+		"primary_disk_size": {
+			Type:     schema.TypeInt,
+			Computed: true,
+		},
 	}
 }
 
@@ -112,7 +114,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 func DataSource() *schema.Resource {
 	return &schema.Resource{
 		ReadContext: dataSourceHcloudServerRead,
-		Schema: datasourceutil.MergeSchema(
+		Schema: merge.Maps(
 			getCommonDataSchema(),
 			map[string]*schema.Schema{
 				"selector": {
@@ -171,7 +173,7 @@ func dataSourceHcloudServerRead(ctx context.Context, d *schema.ResourceData, m i
 	if id, ok := d.GetOk("id"); ok {
 		s, _, err := client.Server.GetByID(ctx, id.(int))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if s == nil {
 			return diag.Errorf("no Server found with id %d", id)
@@ -183,7 +185,7 @@ func dataSourceHcloudServerRead(ctx context.Context, d *schema.ResourceData, m i
 	if name, ok := d.GetOk("name"); ok {
 		s, _, err := client.Server.GetByName(ctx, name.(string))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if s == nil {
 			return diag.Errorf("no Server found with name %s", name)
@@ -213,7 +215,7 @@ func dataSourceHcloudServerRead(ctx context.Context, d *schema.ResourceData, m i
 		}
 		allServers, err := client.Server.AllWithOpts(ctx, opts)
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if len(allServers) == 0 {
 			return diag.Errorf("no Server found for selector %q", selector)
@@ -246,7 +248,7 @@ func dataSourceHcloudServerListRead(ctx context.Context, d *schema.ResourceData,
 	}
 	allServers, err := client.Server.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	ids := make([]string, len(allServers))
@@ -256,7 +258,7 @@ func dataSourceHcloudServerListRead(ctx context.Context, d *schema.ResourceData,
 		tfServers[i] = getServerAttributes(d, server)
 	}
 	d.Set("servers", tfServers)
-	d.SetId(fmt.Sprintf("%x", sha1.Sum([]byte(strings.Join(ids, "")))))
+	d.SetId(datasourceutil.ListID(ids))
 
 	return nil
 }

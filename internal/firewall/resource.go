@@ -7,14 +7,14 @@ import (
 	"log"
 	"net"
 	"strconv"
-	"strings"
 
 	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+
 	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/control"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/control"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
 )
 
 // ResourceType is the type name of the Hetzner Cloud Firewall resource.
@@ -39,9 +39,9 @@ func Resource() *schema.Resource {
 				Type:     schema.TypeMap,
 				Optional: true,
 				Computed: true,
-				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics {
+				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics { // nolint:revive
 					if ok, err := hcloud.ValidateResourceLabels(i.(map[string]interface{})); !ok {
-						return diag.Errorf(err.Error())
+						return diag.FromErr(err)
 					}
 					return nil
 				},
@@ -79,7 +79,7 @@ func Resource() *schema.Resource {
 						"direction": {
 							Type:     schema.TypeString,
 							Required: true,
-							ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics {
+							ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics { // nolint:revive
 								direction := i.(string)
 								switch hcloud.FirewallRuleDirection(direction) {
 								case hcloud.FirewallRuleDirectionIn:
@@ -93,7 +93,7 @@ func Resource() *schema.Resource {
 						"protocol": {
 							Type:     schema.TypeString,
 							Required: true,
-							ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics {
+							ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics { // nolint:revive
 								protocol := i.(string)
 								switch hcloud.FirewallRuleProtocol(protocol) {
 								case hcloud.FirewallRuleProtocolICMP:
@@ -116,9 +116,7 @@ func Resource() *schema.Resource {
 							Elem: &schema.Schema{
 								Type:             schema.TypeString,
 								ValidateDiagFunc: validateIPDiag,
-								StateFunc: func(i interface{}) string {
-									return strings.ToLower(i.(string))
-								},
+								StateFunc:        normalizeIP,
 							},
 							Optional: true,
 						},
@@ -127,9 +125,7 @@ func Resource() *schema.Resource {
 							Elem: &schema.Schema{
 								Type:             schema.TypeString,
 								ValidateDiagFunc: validateIPDiag,
-								StateFunc: func(i interface{}) string {
-									return strings.ToLower(i.(string))
-								},
+								StateFunc:        normalizeIP,
 							},
 							Optional: true,
 						},
@@ -175,12 +171,12 @@ func resourceFirewallCreate(ctx context.Context, d *schema.ResourceData, m inter
 
 	res, _, err := client.Firewall.Create(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	for _, nextAction := range res.Actions {
-		if err := hcclient.WaitForAction(ctx, &client.Action, nextAction); err != nil {
-			return hcclient.ErrorToDiag(err)
+		if err := hcloudutil.WaitForAction(ctx, &client.Action, nextAction); err != nil {
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 	d.SetId(strconv.Itoa(res.Firewall.ID))
@@ -266,7 +262,7 @@ func resourceFirewallRead(ctx context.Context, d *schema.ResourceData, m interfa
 
 	firewall, _, err := client.Firewall.GetByID(ctx, id)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if firewall == nil {
 		log.Printf("[WARN] firewall (%s) not found, removing from state", d.Id())
@@ -292,7 +288,7 @@ func resourceFirewallUpdate(ctx context.Context, d *schema.ResourceData, m inter
 		if resourceFirewallIsNotFound(err, d) {
 			return nil
 		}
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	d.Partial(true)
@@ -306,7 +302,7 @@ func resourceFirewallUpdate(ctx context.Context, d *schema.ResourceData, m inter
 			if resourceFirewallIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -323,10 +319,10 @@ func resourceFirewallUpdate(ctx context.Context, d *schema.ResourceData, m inter
 				if resourceFirewallIsNotFound(err, d) {
 					return nil
 				}
-				return hcclient.ErrorToDiag(err)
+				return hcloudutil.ErrorToDiag(err)
 			}
 			if err := waitForFirewallActions(ctx, client, actions, firewall); err != nil {
-				return hcclient.ErrorToDiag(err)
+				return hcloudutil.ErrorToDiag(err)
 			}
 		}
 	}
@@ -344,7 +340,7 @@ func resourceFirewallUpdate(ctx context.Context, d *schema.ResourceData, m inter
 			if resourceFirewallIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -387,10 +383,10 @@ func syncApplyTo(ctx context.Context, d *schema.ResourceData, client *hcloud.Cli
 			if resourceFirewallIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if err := waitForFirewallActions(ctx, client, actions, firewall); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -400,10 +396,10 @@ func syncApplyTo(ctx context.Context, d *schema.ResourceData, client *hcloud.Cli
 			if resourceFirewallIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if err := waitForFirewallActions(ctx, client, actions, firewall); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 	return nil
@@ -430,12 +426,12 @@ func resourceFirewallDelete(ctx context.Context, d *schema.ResourceData, m inter
 	}
 	firewall, _, err := client.Firewall.GetByID(ctx, firewallID)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	// Detach all Resources of the firewall before trying to delete it.
 	if len(firewall.AppliedTo) > 0 {
 		if err := removeFromResources(ctx, client, d, firewall); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 	// Removing resources from the firewall can sometimes take longer. We
@@ -457,7 +453,7 @@ func resourceFirewallDelete(ctx context.Context, d *schema.ResourceData, m inter
 		return nil
 	})
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return nil
@@ -476,7 +472,7 @@ func removeFromResources(ctx context.Context, client *hcloud.Client, d *schema.R
 }
 
 func resourceFirewallIsNotFound(err error, d *schema.ResourceData) bool {
-	if hcerr, ok := err.(hcloud.Error); ok && hcerr.Code == hcloud.ErrorCodeNotFound {
+	if hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
 		log.Printf("[WARN] firewall (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return true
@@ -521,8 +517,7 @@ func getFirewallAttributes(f *hcloud.Firewall) map[string]interface{} {
 
 func waitForFirewallActions(ctx context.Context, client *hcloud.Client, actions []*hcloud.Action, firewall *hcloud.Firewall) error {
 	log.Printf("[INFO] firewall (%d) waiting for %v actions to complete...", firewall.ID, len(actions))
-	_, errCh := client.Action.WatchOverallProgress(ctx, actions)
-	if err := <-errCh; err != nil {
+	if err := hcloudutil.WaitForActions(ctx, &client.Action, actions); err != nil {
 		return err
 	}
 	log.Printf("[INFO] firewall (%d) %v actions succeeded", firewall.ID, len(actions))
