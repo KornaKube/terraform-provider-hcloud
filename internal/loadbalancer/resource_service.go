@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/control"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/control"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/timeutil"
 )
 
 // ServiceResourceType is the type name of the Hetzner Cloud Load Balancer
@@ -181,9 +183,9 @@ func resourceLoadBalancerServiceCreate(ctx context.Context, d *schema.ResourceDa
 
 	c := m.(*hcloud.Client)
 
-	lbID, err := strconv.Atoi(d.Get("load_balancer_id").(string))
+	lbID, err := util.ParseID(d.Get("load_balancer_id").(string))
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	lb := hcloud.LoadBalancer{ID: lbID}
 
@@ -201,6 +203,7 @@ func resourceLoadBalancerServiceCreate(ctx context.Context, d *schema.ResourceDa
 			listenPort = 80
 		case hcloud.LoadBalancerServiceProtocolHTTPS:
 			listenPort = 443
+		default:
 		}
 	}
 	opts.ListenPort = hcloud.Ptr(listenPort)
@@ -236,14 +239,14 @@ func resourceLoadBalancerServiceCreate(ctx context.Context, d *schema.ResourceDa
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	svcID := fmt.Sprintf("%d__%d", lb.ID, listenPort)
 	d.SetId(svcID)
 
-	if err := hcclient.WaitForAction(ctx, &c.Action, a); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, a); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return resourceLoadBalancerServiceRead(ctx, d, m)
@@ -253,13 +256,13 @@ func resourceLoadBalancerServiceUpdate(ctx context.Context, d *schema.ResourceDa
 	c := m.(*hcloud.Client)
 
 	lb, svc, err := lookupLoadBalancerServiceID(ctx, d.Id(), c)
-	if err == errInvalidLoadBalancerServiceID {
+	if errors.Is(err, errInvalidLoadBalancerServiceID) {
 		log.Printf("[WARN] Invalid id (%s), removing from state: %s", d.Id(), err)
 		d.SetId("")
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	protocol := hcloud.LoadBalancerServiceProtocol(d.Get("protocol").(string))
 	opts := hcloud.LoadBalancerUpdateServiceOpts{
@@ -286,10 +289,10 @@ func resourceLoadBalancerServiceUpdate(ctx context.Context, d *schema.ResourceDa
 		if resourceLoadBalancerIsNotFound(err, d) {
 			return nil
 		}
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
-	if err := hcclient.WaitForAction(ctx, &c.Action, action); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, action); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 	return resourceLoadBalancerServiceRead(ctx, d, m)
 }
@@ -297,16 +300,16 @@ func resourceLoadBalancerServiceUpdate(ctx context.Context, d *schema.ResourceDa
 func resourceLoadBalancerServiceRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 	lb, svc, err := lookupLoadBalancerServiceID(ctx, d.Id(), client)
-	if err == errInvalidLoadBalancerServiceID {
+	if errors.Is(err, errInvalidLoadBalancerServiceID) {
 		log.Printf("[WARN] Invalid id (%s), removing from state: %s", d.Id(), err)
 		d.SetId("")
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if setLoadBalancerServiceSchema(d, lb, svc); err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	return nil
 }
@@ -317,13 +320,13 @@ func resourceLoadBalancerServiceDelete(ctx context.Context, d *schema.ResourceDa
 	c := m.(*hcloud.Client)
 
 	lb, svc, err := lookupLoadBalancerServiceID(ctx, d.Id(), c)
-	if err == errInvalidLoadBalancerServiceID {
+	if errors.Is(err, errInvalidLoadBalancerServiceID) {
 		log.Printf("[WARN] Invalid id (%s), removing from state: %s", d.Id(), err)
 		d.SetId("")
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	a, _, err := c.LoadBalancer.DeleteService(ctx, lb, svc.ListenPort)
@@ -333,7 +336,7 @@ func resourceLoadBalancerServiceDelete(ctx context.Context, d *schema.ResourceDa
 	if err != nil {
 		return diag.Errorf("%s: %v", op, err)
 	}
-	if err := hcclient.WaitForAction(ctx, &c.Action, a); err != nil {
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, a); err != nil {
 		return diag.Errorf("%s: %v", op, err)
 	}
 
@@ -344,7 +347,7 @@ func setLoadBalancerServiceSchema(d *schema.ResourceData, lb *hcloud.LoadBalance
 	svcID := fmt.Sprintf("%d__%d", lb.ID, svc.ListenPort)
 
 	d.SetId(svcID)
-	d.Set("load_balancer_id", strconv.Itoa(lb.ID))
+	d.Set("load_balancer_id", util.FormatID(lb.ID))
 	d.Set("protocol", string(svc.Protocol))
 	d.Set("listen_port", svc.ListenPort)
 	d.Set("destination_port", svc.DestinationPort)
@@ -364,7 +367,7 @@ func setLoadBalancerServiceSchema(d *schema.ResourceData, lb *hcloud.LoadBalance
 		if len(svc.HTTP.Certificates) > 0 {
 			certIDs := make([]int, len(svc.HTTP.Certificates))
 			for i := 0; i < len(svc.HTTP.Certificates); i++ {
-				certIDs[i] = svc.HTTP.Certificates[i].ID
+				certIDs[i] = util.CastInt(svc.HTTP.Certificates[i].ID)
 			}
 			httpMap["certificates"] = certIDs
 		}
@@ -400,7 +403,7 @@ func lookupLoadBalancerServiceID(
 		return nil, nil, errInvalidLoadBalancerServiceID
 	}
 
-	loadBalancerID, err := strconv.Atoi(parts[0])
+	loadBalancerID, err := util.ParseID(parts[0])
 	if err != nil {
 		return nil, nil, errInvalidLoadBalancerServiceID
 	}
@@ -440,7 +443,7 @@ func parseTFHTTP(tfHTTP []interface{}) *hcloud.LoadBalancerAddServiceOptsHTTP {
 		http.CookieName = hcloud.Ptr(cookieName.(string))
 	}
 	if cookieLifetime, ok := httpMap["cookie_lifetime"]; ok && cookieLifetime != 0 {
-		http.CookieLifetime = hcloud.Ptr(time.Duration(cookieLifetime.(int)) * time.Second)
+		http.CookieLifetime = hcloud.Ptr(timeutil.DurationFromSeconds(cookieLifetime.(int)))
 	}
 
 	if certificates, ok := httpMap["certificates"]; ok {
@@ -468,7 +471,7 @@ func parseUpdateTFHTTP(tfHTTP []interface{}) *hcloud.LoadBalancerUpdateServiceOp
 		http.CookieName = hcloud.Ptr(cookieName.(string))
 	}
 	if cookieLifetime, ok := httpMap["cookie_lifetime"]; ok {
-		http.CookieLifetime = hcloud.Ptr(time.Duration(cookieLifetime.(int)) * time.Second)
+		http.CookieLifetime = hcloud.Ptr(timeutil.DurationFromSeconds(cookieLifetime.(int)))
 	}
 
 	if certificates, ok := httpMap["certificates"]; ok {
@@ -486,7 +489,7 @@ func parseTFCertificates(tfCerts *schema.Set) []*hcloud.Certificate {
 	}
 	certs := make([]*hcloud.Certificate, tfCerts.Len())
 	for i, c := range tfCerts.List() {
-		certs[i] = &hcloud.Certificate{ID: c.(int)}
+		certs[i] = &hcloud.Certificate{ID: util.CastInt64(c)}
 	}
 	return certs
 }
@@ -534,10 +537,10 @@ func parseTFHealthCheckAdd(tfHealthCheck []interface{}) *hcloud.LoadBalancerAddS
 		healthCheckOpts.Port = hcloud.Ptr(port.(int))
 	}
 	if interval, ok := healthCheckMap["interval"]; ok {
-		healthCheckOpts.Interval = hcloud.Ptr(time.Duration(interval.(int)) * time.Second)
+		healthCheckOpts.Interval = hcloud.Ptr(timeutil.DurationFromSeconds(interval.(int)))
 	}
 	if timeout, ok := healthCheckMap["timeout"]; ok {
-		healthCheckOpts.Timeout = hcloud.Ptr(time.Duration(timeout.(int)) * time.Second)
+		healthCheckOpts.Timeout = hcloud.Ptr(timeutil.DurationFromSeconds(timeout.(int)))
 	}
 	if retries, ok := healthCheckMap["retries"]; ok {
 		healthCheckOpts.Retries = hcloud.Ptr(retries.(int))
@@ -561,10 +564,10 @@ func parseTFHealthCheckUpdate(tfHealthCheck []interface{}) *hcloud.LoadBalancerU
 		healthCheckOpts.Port = hcloud.Ptr(port.(int))
 	}
 	if interval, ok := healthCheckMap["interval"]; ok {
-		healthCheckOpts.Interval = hcloud.Ptr(time.Duration(interval.(int)) * time.Second)
+		healthCheckOpts.Interval = hcloud.Ptr(timeutil.DurationFromSeconds(interval.(int)))
 	}
 	if timeout, ok := healthCheckMap["timeout"]; ok {
-		healthCheckOpts.Timeout = hcloud.Ptr(time.Duration(timeout.(int)) * time.Second)
+		healthCheckOpts.Timeout = hcloud.Ptr(timeutil.DurationFromSeconds(timeout.(int)))
 	}
 	if retries, ok := healthCheckMap["retries"]; ok {
 		healthCheckOpts.Retries = hcloud.Ptr(retries.(int))

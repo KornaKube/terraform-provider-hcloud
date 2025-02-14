@@ -2,17 +2,15 @@ package volume
 
 import (
 	"context"
-	"crypto/sha1"
-	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/merge"
 )
 
 const (
@@ -68,7 +66,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 func DataSource() *schema.Resource {
 	return &schema.Resource{
 		ReadContext: dataSourceHcloudVolumeRead,
-		Schema: datasourceutil.MergeSchema(
+		Schema: merge.Maps(
 			getCommonDataSchema(),
 			map[string]*schema.Schema{
 				"selector": {
@@ -124,9 +122,9 @@ func dataSourceHcloudVolumeRead(ctx context.Context, d *schema.ResourceData, m i
 	client := m.(*hcloud.Client)
 
 	if id, ok := d.GetOk("id"); ok {
-		v, _, err := client.Volume.GetByID(ctx, id.(int))
+		v, _, err := client.Volume.GetByID(ctx, util.CastInt64(id))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if v == nil {
 			return diag.Errorf("no volume found with id %d", id)
@@ -137,7 +135,7 @@ func dataSourceHcloudVolumeRead(ctx context.Context, d *schema.ResourceData, m i
 	if name, ok := d.GetOk("name"); ok {
 		v, _, err := client.Volume.GetByName(ctx, name.(string))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if v == nil {
 			return diag.Errorf("no volume found with name %v", name)
@@ -168,7 +166,7 @@ func dataSourceHcloudVolumeRead(ctx context.Context, d *schema.ResourceData, m i
 		}
 		allVolumes, err := client.Volume.AllWithOpts(ctx, opts)
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if len(allVolumes) == 0 {
 			return diag.Errorf("no volume found for selector %q", selector)
@@ -200,17 +198,17 @@ func dataSourceHcloudVolumeListRead(ctx context.Context, d *schema.ResourceData,
 	}
 	allVolumes, err := client.Volume.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	ids := make([]string, len(allVolumes))
 	tfVolume := make([]map[string]interface{}, len(allVolumes))
 	for i, volume := range allVolumes {
-		ids[i] = strconv.Itoa(volume.ID)
+		ids[i] = util.FormatID(volume.ID)
 		tfVolume[i] = getVolumeAttributes(volume)
 	}
 	d.Set("volumes", tfVolume)
-	d.SetId(fmt.Sprintf("%x", sha1.Sum([]byte(strings.Join(ids, "")))))
+	d.SetId(datasourceutil.ListID(ids))
 
 	return nil
 }

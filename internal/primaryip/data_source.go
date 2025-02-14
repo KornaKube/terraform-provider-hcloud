@@ -2,18 +2,15 @@ package primaryip
 
 import (
 	"context"
-	"crypto/sha1"
-	"fmt"
-	"strconv"
-	"strings"
-
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/merge"
 )
 
 const (
@@ -82,7 +79,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 func DataSource() *schema.Resource {
 	return &schema.Resource{
 		ReadContext: dataSourceHcloudPrimaryIPRead,
-		Schema: datasourceutil.MergeSchema(
+		Schema: merge.Maps(
 			getCommonDataSchema(),
 			map[string]*schema.Schema{
 				"with_selector": {
@@ -117,9 +114,9 @@ func dataSourceHcloudPrimaryIPRead(ctx context.Context, d *schema.ResourceData, 
 	client := m.(*hcloud.Client)
 
 	if id, ok := d.GetOk("id"); ok {
-		f, _, err := client.PrimaryIP.GetByID(ctx, id.(int))
+		f, _, err := client.PrimaryIP.GetByID(ctx, util.CastInt64(id))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if f == nil {
 			return diag.Errorf("no Primary IP found with id %d", id)
@@ -130,7 +127,7 @@ func dataSourceHcloudPrimaryIPRead(ctx context.Context, d *schema.ResourceData, 
 	if name, ok := d.GetOk("name"); ok {
 		f, _, err := client.PrimaryIP.GetByName(ctx, name.(string))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if f == nil {
 			return diag.Errorf("no Primary IP found with name %s", name)
@@ -141,7 +138,7 @@ func dataSourceHcloudPrimaryIPRead(ctx context.Context, d *schema.ResourceData, 
 	if ip, ok := d.GetOk("ip_address"); ok {
 		primaryIP, _, err := client.PrimaryIP.GetByIP(ctx, ip.(string))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		setPrimaryIPSchema(d, primaryIP)
 		return nil
@@ -162,7 +159,7 @@ func dataSourceHcloudPrimaryIPRead(ctx context.Context, d *schema.ResourceData, 
 		}
 		allIPs, _, err := client.PrimaryIP.List(ctx, opts)
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if len(allIPs) == 0 {
 			return diag.Errorf("no Primary IP found for selector %q", selector)
@@ -190,17 +187,17 @@ func dataSourceHcloudPrimaryIPListRead(ctx context.Context, d *schema.ResourceDa
 	}
 	allIPs, err := client.PrimaryIP.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	ids := make([]string, len(allIPs))
 	tfIPs := make([]map[string]interface{}, len(allIPs))
 	for i, ip := range allIPs {
-		ids[i] = strconv.Itoa(ip.ID)
+		ids[i] = util.FormatID(ip.ID)
 		tfIPs[i] = getPrimaryIPAttributes(ip)
 	}
 	d.Set("primary_ips", tfIPs)
-	d.SetId(fmt.Sprintf("%x", sha1.Sum([]byte(strings.Join(ids, "")))))
+	d.SetId(datasourceutil.ListID(ids))
 
 	return nil
 }

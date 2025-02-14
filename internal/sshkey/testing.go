@@ -8,7 +8,8 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/hetznercloud/hcloud-go/hcloud"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/testsupport"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/testtemplate"
 )
@@ -44,8 +45,8 @@ func Sweep(r string) error {
 }
 
 // ByID returns a function that obtains a sshkey by its ID.
-func ByID(t *testing.T, cert *hcloud.SSHKey) func(*hcloud.Client, int) bool {
-	return func(c *hcloud.Client, id int) bool {
+func ByID(t *testing.T, cert *hcloud.SSHKey) func(*hcloud.Client, int64) bool {
+	return func(c *hcloud.Client, id int64) bool {
 		found, _, err := c.SSHKey.GetByID(context.Background(), id)
 		if err != nil {
 			t.Fatalf("find sshkey %d: %v", id, err)
@@ -92,9 +93,10 @@ func (d *DDataList) TFID() string {
 type RData struct {
 	testtemplate.DataCommon
 
-	Name      string
-	PublicKey string
-	Labels    map[string]string
+	Name       string
+	PublicKey  string
+	PrivateKey string
+	Labels     map[string]string
 }
 
 // TFID returns the resource identifier.
@@ -104,15 +106,16 @@ func (d *RData) TFID() string {
 
 // NewRData creates data for a new sshkey resource.
 func NewRData(t *testing.T, name string) *RData {
-	publicKeyMaterial, _, err := acctest.RandSSHKeyPair("hcloud@ssh-acceptance-test")
+	publicKeyMaterial, privateKeyMaterial, err := acctest.RandSSHKeyPair("hcloud@ssh-acceptance-test")
 	rInt := acctest.RandInt()
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := &RData{
-		Name:      name,
-		PublicKey: publicKeyMaterial,
-		Labels:    map[string]string{"key": strconv.Itoa(rInt)},
+		Name:       name,
+		PublicKey:  publicKeyMaterial,
+		PrivateKey: privateKeyMaterial,
+		Labels:     map[string]string{"key": strconv.Itoa(rInt)},
 	}
 	r.SetRName(name)
 	return r

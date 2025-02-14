@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hetznercloud/hcloud-go/hcloud"
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 )
 
 // CreateClient creates a new *hcloud.Client which authenticates using the
@@ -16,5 +16,10 @@ func CreateClient() (*hcloud.Client, error) {
 	opts := []hcloud.ClientOption{
 		hcloud.WithToken(os.Getenv("HCLOUD_TOKEN")),
 	}
+
+	if value := os.Getenv("HCLOUD_ENDPOINT"); value != "" {
+		opts = append(opts, hcloud.WithEndpoint(value))
+	}
+
 	return hcloud.NewClient(opts...), nil
 }

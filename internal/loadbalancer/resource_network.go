@@ -6,16 +6,16 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/control"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/network"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/control"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
 )
 
 // NetworkResourceType is the type name of the Hetzner Cloud Load Balancer
@@ -79,15 +79,15 @@ func resourceLoadBalancerNetworkCreate(ctx context.Context, d *schema.ResourceDa
 	if snIDSet {
 		nwID, _, err := network.ParseSubnetID(subNetID.(string))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		networkID = nwID
 	}
 
-	loadBalancerID := d.Get("load_balancer_id").(int)
+	loadBalancerID := util.CastInt64(d.Get("load_balancer_id"))
 	lb := &hcloud.LoadBalancer{ID: loadBalancerID}
 
-	nw := &hcloud.Network{ID: networkID.(int)}
+	nw := &hcloud.Network{ID: util.CastInt64(networkID)}
 	opts := hcloud.LoadBalancerAttachToNetworkOpts{
 		Network: nw,
 		IP:      ip,
@@ -112,18 +112,18 @@ func resourceLoadBalancerNetworkCreate(ctx context.Context, d *schema.ResourceDa
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	d.SetId(generateLoadBalancerNetworkID(lb, nw))
 
-	if err := hcclient.WaitForAction(ctx, &c.Action, action); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, action); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	enablePublicInterface := d.Get("enable_public_interface").(bool)
 	err = resourceLoadBalancerNetworkUpdatePublicInterface(ctx, enablePublicInterface, lb, c)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return resourceLoadBalancerNetworkRead(ctx, d, m)
@@ -132,13 +132,13 @@ func resourceLoadBalancerNetworkUpdate(ctx context.Context, d *schema.ResourceDa
 	c := m.(*hcloud.Client)
 
 	loadBalancer, nw, privateNet, err := lookupLoadBalancerNetworkID(ctx, d.Id(), c)
-	if err == errInvalidLoadBalancerNetworkID {
+	if errors.Is(err, errInvalidLoadBalancerNetworkID) {
 		log.Printf("[WARN] Invalid id (%s), removing from state: %s", d.Id(), err)
 		d.SetId("")
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if loadBalancer == nil {
 		log.Printf("[WARN] LoadBalancer (%s) not found, removing from state", d.Id())
@@ -158,7 +158,7 @@ func resourceLoadBalancerNetworkUpdate(ctx context.Context, d *schema.ResourceDa
 	if d.HasChange("enable_public_interface") {
 		enablePublicInterface := d.Get("enable_public_interface").(bool)
 		if err := setEnablePublicInterface(ctx, c, loadBalancer, enablePublicInterface); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 	return resourceLoadBalancerNetworkRead(ctx, d, m)
@@ -167,13 +167,13 @@ func resourceLoadBalancerNetworkRead(ctx context.Context, d *schema.ResourceData
 	client := m.(*hcloud.Client)
 
 	loadBalancer, network, privateNet, err := lookupLoadBalancerNetworkID(ctx, d.Id(), client)
-	if err == errInvalidLoadBalancerNetworkID {
+	if errors.Is(err, errInvalidLoadBalancerNetworkID) {
 		log.Printf("[WARN] Invalid id (%s), removing from state: %s", d.Id(), err)
 		d.SetId("")
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if loadBalancer == nil {
 		log.Printf("[WARN] LoadBalancer (%s) not found, removing from state", d.Id())
@@ -227,10 +227,10 @@ func resourceLoadBalancerNetworkDelete(ctx context.Context, d *schema.ResourceDa
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
-	if err := hcclient.WaitForAction(ctx, &client.Action, action); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &client.Action, action); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return nil
@@ -272,7 +272,7 @@ func setEnablePublicInterface(ctx context.Context, c *hcloud.Client, loadBalance
 			return err
 		}
 
-		return hcclient.WaitForAction(ctx, &c.Action, action)
+		return hcloudutil.WaitForAction(ctx, &c.Action, action)
 	}
 	if !loadBalancer.PublicNet.Enabled && enablePublicInterface {
 		action, _, err := c.LoadBalancer.EnablePublicInterface(ctx, loadBalancer)
@@ -280,7 +280,7 @@ func setEnablePublicInterface(ctx context.Context, c *hcloud.Client, loadBalance
 			return err
 		}
 
-		return hcclient.WaitForAction(ctx, &c.Action, action)
+		return hcloudutil.WaitForAction(ctx, &c.Action, action)
 	}
 	return nil
 }
@@ -307,7 +307,7 @@ func lookupLoadBalancerNetworkID(
 		return nil, nil, nil, errInvalidLoadBalancerNetworkID
 	}
 
-	loadBalancerID, err := strconv.Atoi(parts[0])
+	loadBalancerID, err := util.ParseID(parts[0])
 	if err != nil {
 		return nil, nil, nil, errInvalidLoadBalancerNetworkID
 	}
@@ -320,7 +320,7 @@ func lookupLoadBalancerNetworkID(
 		return nil, nil, nil, errInvalidLoadBalancerNetworkID
 	}
 
-	networkID, err := strconv.Atoi(parts[1])
+	networkID, err := util.ParseID(parts[1])
 	if err != nil {
 		return nil, nil, nil, errInvalidLoadBalancerNetworkID
 	}
@@ -355,5 +355,5 @@ func resourceLoadBalancerNetworkUpdatePublicInterface(ctx context.Context, enabl
 	if err != nil {
 		return err
 	}
-	return hcclient.WaitForAction(ctx, &client.Action, action)
+	return hcloudutil.WaitForAction(ctx, &client.Action, action)
 }

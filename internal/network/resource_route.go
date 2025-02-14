@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/control"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/control"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
 )
 
 // RouteResourceType is the type name of the Hetzner Cloud Network Route resource.
@@ -57,7 +57,7 @@ func resourceNetworkRouteCreate(ctx context.Context, d *schema.ResourceData, m i
 
 	_, destination, err := net.ParseCIDR(d.Get("destination").(string))
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	gateway := net.ParseIP(d.Get("gateway").(string))
@@ -67,7 +67,7 @@ func resourceNetworkRouteCreate(ctx context.Context, d *schema.ResourceData, m i
 		return nil
 	}
 	networkID := d.Get("network_id")
-	network := &hcloud.Network{ID: networkID.(int)}
+	network := &hcloud.Network{ID: util.CastInt64(networkID)}
 	opts := hcloud.NetworkAddRouteOpts{
 		Route: hcloud.NetworkRoute{
 			Destination: destination,
@@ -85,11 +85,11 @@ func resourceNetworkRouteCreate(ctx context.Context, d *schema.ResourceData, m i
 		return control.AbortRetry(err)
 	})
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	d.SetId(generateNetworkRouteID(network, destination.String()))
-	if err := hcclient.WaitForAction(ctx, &c.Action, a); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, a); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return resourceNetworkRouteRead(ctx, d, m)
@@ -99,13 +99,13 @@ func resourceNetworkRouteRead(ctx context.Context, d *schema.ResourceData, m int
 	client := m.(*hcloud.Client)
 
 	network, route, err := lookupNetworkRouteID(ctx, d.Id(), client)
-	if err == errInvalidNetworkRouteID {
+	if errors.Is(err, errInvalidNetworkRouteID) {
 		log.Printf("[WARN] Invalid id (%s), removing from state: %s", d.Id(), err)
 		d.SetId("")
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if network == nil {
 		log.Printf("[WARN] Network Route (%s) not found, removing from state", d.Id())
@@ -144,11 +144,11 @@ func resourceNetworkRouteDelete(ctx context.Context, d *schema.ResourceData, m i
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
-	if err := hcclient.WaitForAction(ctx, &c.Action, action); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, action); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 	return nil
 }
@@ -182,7 +182,7 @@ func lookupNetworkRouteID(ctx context.Context, terraformID string, client *hclou
 		return
 	}
 
-	networkID, err := strconv.Atoi(parts[0])
+	networkID, err := util.ParseID(parts[0])
 	if err != nil {
 		err = errInvalidNetworkRouteID
 		return

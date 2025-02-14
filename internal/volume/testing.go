@@ -6,7 +6,8 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/hetznercloud/hcloud-go/hcloud"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/testsupport"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/testtemplate"
 )
@@ -42,8 +43,8 @@ func Sweep(r string) error {
 }
 
 // ByID returns a function that obtains a Volume by its ID.
-func ByID(t *testing.T, fl *hcloud.Volume) func(*hcloud.Client, int) bool {
-	return func(c *hcloud.Client, id int) bool {
+func ByID(t *testing.T, fl *hcloud.Volume) func(*hcloud.Client, int64) bool {
+	return func(c *hcloud.Client, id int64) bool {
 		found, _, err := c.Volume.GetByID(context.Background(), id)
 		if err != nil {
 			t.Fatalf("find floating ip %d: %v", id, err)
@@ -101,15 +102,6 @@ type RData struct {
 // TFID returns the resource identifier.
 func (d *RData) TFID() string {
 	return fmt.Sprintf("%s.%s", ResourceType, d.RName())
-}
-
-// Basic Volume for use in volume related test.
-//
-// Do not modify!
-var Basic = &RData{
-	Name:         "basic-volume",
-	LocationName: "nbg1",
-	Size:         10,
 }
 
 // RDataAttachment defines the fields for the "testdata/r/hcloud_volume_attachment" template.

@@ -7,13 +7,14 @@ import (
 	"math/rand"
 	"strconv"
 
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/control"
-
 	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/control"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
 )
 
 // ResourceType is the type name of the Hetzner Cloud PrimaryIP resource.
@@ -70,9 +71,9 @@ func Resource() *schema.Resource {
 			"labels": {
 				Type:     schema.TypeMap,
 				Optional: true,
-				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics {
+				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics { // nolint:revive
 					if ok, err := hcloud.ValidateResourceLabels(i.(map[string]interface{})); !ok {
-						return diag.Errorf(err.Error())
+						return diag.FromErr(err)
 					}
 					return nil
 				},
@@ -102,10 +103,10 @@ func resourcePrimaryIPCreate(ctx context.Context, d *schema.ResourceData, m inte
 
 	switch {
 	case ok1 && ok2:
-		return hcclient.ErrorToDiag(errors.New("assignee_id & datacenter cannot be set in the same time. " +
+		return hcloudutil.ErrorToDiag(errors.New("assignee_id & datacenter cannot be set in the same time. " +
 			"If assignee_id is set, datacenter must be left out"))
 	case ok1:
-		opts.AssigneeID = hcloud.Ptr(assigneeID.(int))
+		opts.AssigneeID = hcloud.Ptr(util.CastInt64(assigneeID))
 	case ok2:
 		opts.Datacenter = dataCenter.(string)
 	default:
@@ -120,21 +121,20 @@ func resourcePrimaryIPCreate(ctx context.Context, d *schema.ResourceData, m inte
 
 	res, _, err := client.PrimaryIP.Create(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
-	d.SetId(strconv.Itoa(res.PrimaryIP.ID))
+	d.SetId(util.FormatID(res.PrimaryIP.ID))
 	if res.Action != nil {
-		_, errCh := client.Action.WatchProgress(ctx, res.Action)
-		if err := <-errCh; err != nil {
-			return hcclient.ErrorToDiag(err)
+		if err := hcloudutil.WaitForAction(ctx, &client.Action, res.Action); err != nil {
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
 	deleteProtection := d.Get("delete_protection").(bool)
 	if deleteProtection {
 		if err := setProtection(ctx, client, res.PrimaryIP, deleteProtection); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -144,7 +144,7 @@ func resourcePrimaryIPCreate(ctx context.Context, d *schema.ResourceData, m inte
 func resourcePrimaryIPRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	id, err := strconv.Atoi(d.Id())
+	id, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid Primary IP id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
@@ -153,7 +153,7 @@ func resourcePrimaryIPRead(ctx context.Context, d *schema.ResourceData, m interf
 
 	primaryIP, _, err := client.PrimaryIP.GetByID(ctx, id)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if primaryIP == nil {
 		log.Printf("[WARN] Primary IP (%s) not found, removing from state", d.Id())
@@ -168,7 +168,7 @@ func resourcePrimaryIPRead(ctx context.Context, d *schema.ResourceData, m interf
 func resourcePrimaryIPUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	id, err := strconv.Atoi(d.Id())
+	id, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid Primary IP id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
@@ -187,7 +187,7 @@ func resourcePrimaryIPUpdate(ctx context.Context, d *schema.ResourceData, m inte
 			if resourcePrimaryIPIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -200,12 +200,12 @@ func resourcePrimaryIPUpdate(ctx context.Context, d *schema.ResourceData, m inte
 			if resourcePrimaryIPIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
 	if d.HasChange("assignee_id") {
-		serverID := d.Get("assignee_id").(int)
+		serverID := util.CastInt64(d.Get("assignee_id"))
 		if serverID == 0 {
 			if err := UnassignPrimaryIP(ctx, client, primaryIP.ID); err != nil {
 				return err
@@ -229,14 +229,14 @@ func resourcePrimaryIPUpdate(ctx context.Context, d *schema.ResourceData, m inte
 			if resourcePrimaryIPIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
 	if d.HasChange("delete_protection") {
 		deletionProtection := d.Get("delete_protection").(bool)
 		if err := setProtection(ctx, client, primaryIP, deletionProtection); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -248,46 +248,62 @@ func resourcePrimaryIPUpdate(ctx context.Context, d *schema.ResourceData, m inte
 func resourcePrimaryIPDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	primaryIPID, err := strconv.Atoi(d.Id())
+	primaryIPID, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid Primary IP id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
 		return nil
 	}
 
-	if assigneeID, ok := d.GetOk("assignee_id"); ok && assigneeID != 0 {
-		if server, _, err := client.Server.Get(ctx, strconv.Itoa(assigneeID.(int))); err == nil && server != nil {
-			off, _, _ := client.Server.Poweroff(ctx, server)
-			if errDiag := watchProgress(ctx, off, client); err != nil {
-				return errDiag
-			}
-			// dont catch error, because its possible that the primary IP got already unassigned on server destroy
-			UnassignPrimaryIP(ctx, client, primaryIPID)
+	if assigneeIDI, ok := d.GetOk("assignee_id"); ok && util.CastInt64(assigneeIDI) != 0 {
+		assigneeID := util.CastInt64(assigneeIDI)
 
-			on, _, _ := client.Server.Poweron(ctx, server)
-			if errDiag := watchProgress(ctx, on, client); err != nil {
-				return errDiag
+		if server, _, err := client.Server.GetByID(ctx, assigneeID); err == nil && server != nil {
+			// The server does not have this primary ip assigned anymore, no need to try to detach it before deleting
+			// Workaround for https://github.com/hashicorp/terraform/issues/35568
+			if server.PublicNet.IPv4.ID == assigneeID || server.PublicNet.IPv6.ID == assigneeID {
+				offAction, _, _ := client.Server.Poweroff(ctx, server)
+				// if offErr != nil {
+				// 	return hcloudutil.ErrorToDiag(offErr)
+				// }
+				if offActionErr := hcloudutil.WaitForAction(ctx, &client.Action, offAction); offActionErr != nil {
+					return hcloudutil.ErrorToDiag(offActionErr)
+				}
+				// dont catch error, because its possible that the primary IP got already unassigned on server destroy
+				UnassignPrimaryIP(ctx, client, primaryIPID)
+
+				onAction, _, _ := client.Server.Poweron(ctx, server)
+				// if onErr != nil {
+				// 	return hcloudutil.ErrorToDiag(onErr)
+				// }
+				if onActionErr := hcloudutil.WaitForAction(ctx, &client.Action, onAction); onActionErr != nil {
+					return hcloudutil.ErrorToDiag(onActionErr)
+				}
 			}
 		}
 	}
 	err = control.Retry(2*control.DefaultRetries, func() error {
 		if _, err := client.PrimaryIP.Delete(ctx, &hcloud.PrimaryIP{ID: primaryIPID}); err != nil {
-			if !hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
+			if hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
 				// Primary IP was already deleted
-				return err
+				return nil
+			}
+			if hcloud.IsError(err, hcloud.ErrorCodeProtected) {
+				// Primary IP is delete protected
+				return control.AbortRetry(err)
 			}
 		}
-		return nil
+		return err
 	})
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return nil
 }
 
 func resourcePrimaryIPIsNotFound(err error, d *schema.ResourceData) bool {
-	if hcerr, ok := err.(hcloud.Error); ok && hcerr.Code == hcloud.ErrorCodeNotFound {
+	if hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
 		log.Printf("[WARN] Primary IP (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return true
@@ -296,13 +312,7 @@ func resourcePrimaryIPIsNotFound(err error, d *schema.ResourceData) bool {
 }
 
 func setPrimaryIPSchema(d *schema.ResourceData, f *hcloud.PrimaryIP) {
-	for key, val := range getPrimaryIPAttributes(f) {
-		if key == "id" {
-			d.SetId(strconv.Itoa(val.(int)))
-		} else {
-			d.Set(key, val)
-		}
-	}
+	util.SetSchemaFromAttributes(d, getPrimaryIPAttributes(f))
 }
 
 func getPrimaryIPAttributes(f *hcloud.PrimaryIP) map[string]interface{} {
@@ -326,51 +336,41 @@ func getPrimaryIPAttributes(f *hcloud.PrimaryIP) map[string]interface{} {
 	return res
 }
 
-func setProtection(ctx context.Context, c *hcloud.Client, primaryIP *hcloud.PrimaryIP, delete bool) error {
+func setProtection(ctx context.Context, c *hcloud.Client, primaryIP *hcloud.PrimaryIP, deleteProtection bool) error {
 	action, _, err := c.PrimaryIP.ChangeProtection(ctx,
 		hcloud.PrimaryIPChangeProtectionOpts{
 			ID:     primaryIP.ID,
-			Delete: delete,
+			Delete: deleteProtection,
 		},
 	)
 	if err != nil {
 		return err
 	}
 
-	return hcclient.WaitForAction(ctx, &c.Action, action)
+	return hcloudutil.WaitForAction(ctx, &c.Action, action)
 }
 
-func watchProgress(ctx context.Context, action *hcloud.Action, client *hcloud.Client) diag.Diagnostics {
-	if action != nil {
-		_, errCh := client.Action.WatchProgress(ctx, action)
-		if err := <-errCh; err != nil {
-			return hcclient.ErrorToDiag(err)
-		}
-	}
-	return nil
-}
-
-func AssignPrimaryIP(ctx context.Context, c *hcloud.Client, primaryIPID int, serverID int) diag.Diagnostics {
+func AssignPrimaryIP(ctx context.Context, c *hcloud.Client, primaryIPID int64, serverID int64) diag.Diagnostics {
 	action, _, err := c.PrimaryIP.Assign(ctx, hcloud.PrimaryIPAssignOpts{
 		ID:         primaryIPID,
 		AssigneeID: serverID,
 	})
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
-	if err := hcclient.WaitForAction(ctx, &c.Action, action); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, action); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 	return nil
 }
 
-func UnassignPrimaryIP(ctx context.Context, c *hcloud.Client, v int) diag.Diagnostics {
+func UnassignPrimaryIP(ctx context.Context, c *hcloud.Client, v int64) diag.Diagnostics {
 	action, _, err := c.PrimaryIP.Unassign(ctx, v)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
-	if err := hcclient.WaitForAction(ctx, &c.Action, action); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, action); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 	return nil
 }
@@ -378,7 +378,7 @@ func UnassignPrimaryIP(ctx context.Context, c *hcloud.Client, v int) diag.Diagno
 func DeletePrimaryIP(ctx context.Context, c *hcloud.Client, p *hcloud.PrimaryIP) diag.Diagnostics {
 	_, err := c.PrimaryIP.Delete(ctx, p)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	return nil
 }
@@ -392,16 +392,16 @@ func CreateRandomPrimaryIP(ctx context.Context, c *hcloud.Client, server *hcloud
 		Type:         ipType,
 	})
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
-	if err := hcclient.WaitForAction(ctx, &c.Action, create.Action); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, create.Action); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return nil
 }
 
 func randomNumberBetween(low, hi int) int {
-	return low + rand.Intn(hi-low)
+	return low + rand.Intn(hi-low) // nolint: gosec
 }

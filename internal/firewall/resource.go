@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"strconv"
-	"strings"
 
 	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/control"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/control"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
 )
 
 // ResourceType is the type name of the Hetzner Cloud Firewall resource.
@@ -39,9 +39,9 @@ func Resource() *schema.Resource {
 				Type:     schema.TypeMap,
 				Optional: true,
 				Computed: true,
-				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics {
+				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics { // nolint:revive
 					if ok, err := hcloud.ValidateResourceLabels(i.(map[string]interface{})); !ok {
-						return diag.Errorf(err.Error())
+						return diag.FromErr(err)
 					}
 					return nil
 				},
@@ -79,7 +79,7 @@ func Resource() *schema.Resource {
 						"direction": {
 							Type:     schema.TypeString,
 							Required: true,
-							ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics {
+							ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics { // nolint:revive
 								direction := i.(string)
 								switch hcloud.FirewallRuleDirection(direction) {
 								case hcloud.FirewallRuleDirectionIn:
@@ -93,7 +93,7 @@ func Resource() *schema.Resource {
 						"protocol": {
 							Type:     schema.TypeString,
 							Required: true,
-							ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics {
+							ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics { // nolint:revive
 								protocol := i.(string)
 								switch hcloud.FirewallRuleProtocol(protocol) {
 								case hcloud.FirewallRuleProtocolICMP:
@@ -116,9 +116,7 @@ func Resource() *schema.Resource {
 							Elem: &schema.Schema{
 								Type:             schema.TypeString,
 								ValidateDiagFunc: validateIPDiag,
-								StateFunc: func(i interface{}) string {
-									return strings.ToLower(i.(string))
-								},
+								StateFunc:        normalizeIP,
 							},
 							Optional: true,
 						},
@@ -127,9 +125,7 @@ func Resource() *schema.Resource {
 							Elem: &schema.Schema{
 								Type:             schema.TypeString,
 								ValidateDiagFunc: validateIPDiag,
-								StateFunc: func(i interface{}) string {
-									return strings.ToLower(i.(string))
-								},
+								StateFunc:        normalizeIP,
 							},
 							Optional: true,
 						},
@@ -175,15 +171,15 @@ func resourceFirewallCreate(ctx context.Context, d *schema.ResourceData, m inter
 
 	res, _, err := client.Firewall.Create(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	for _, nextAction := range res.Actions {
-		if err := hcclient.WaitForAction(ctx, &client.Action, nextAction); err != nil {
-			return hcclient.ErrorToDiag(err)
+		if err := hcloudutil.WaitForAction(ctx, &client.Action, nextAction); err != nil {
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
-	d.SetId(strconv.Itoa(res.Firewall.ID))
+	d.SetId(util.FormatID(res.Firewall.ID))
 
 	return resourceFirewallRead(ctx, d, m)
 }
@@ -257,7 +253,7 @@ func toTFRule(hcloudRule hcloud.FirewallRule) map[string]interface{} {
 func resourceFirewallRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	id, err := strconv.Atoi(d.Id())
+	id, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid firewall id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
@@ -266,7 +262,7 @@ func resourceFirewallRead(ctx context.Context, d *schema.ResourceData, m interfa
 
 	firewall, _, err := client.Firewall.GetByID(ctx, id)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if firewall == nil {
 		log.Printf("[WARN] firewall (%s) not found, removing from state", d.Id())
@@ -281,7 +277,7 @@ func resourceFirewallRead(ctx context.Context, d *schema.ResourceData, m interfa
 func resourceFirewallUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	id, err := strconv.Atoi(d.Id())
+	id, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid firewall id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
@@ -292,7 +288,7 @@ func resourceFirewallUpdate(ctx context.Context, d *schema.ResourceData, m inter
 		if resourceFirewallIsNotFound(err, d) {
 			return nil
 		}
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	d.Partial(true)
@@ -306,7 +302,7 @@ func resourceFirewallUpdate(ctx context.Context, d *schema.ResourceData, m inter
 			if resourceFirewallIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -323,10 +319,10 @@ func resourceFirewallUpdate(ctx context.Context, d *schema.ResourceData, m inter
 				if resourceFirewallIsNotFound(err, d) {
 					return nil
 				}
-				return hcclient.ErrorToDiag(err)
+				return hcloudutil.ErrorToDiag(err)
 			}
 			if err := waitForFirewallActions(ctx, client, actions, firewall); err != nil {
-				return hcclient.ErrorToDiag(err)
+				return hcloudutil.ErrorToDiag(err)
 			}
 		}
 	}
@@ -344,7 +340,7 @@ func resourceFirewallUpdate(ctx context.Context, d *schema.ResourceData, m inter
 			if resourceFirewallIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -387,10 +383,10 @@ func syncApplyTo(ctx context.Context, d *schema.ResourceData, client *hcloud.Cli
 			if resourceFirewallIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if err := waitForFirewallActions(ctx, client, actions, firewall); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -400,10 +396,10 @@ func syncApplyTo(ctx context.Context, d *schema.ResourceData, client *hcloud.Cli
 			if resourceFirewallIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if err := waitForFirewallActions(ctx, client, actions, firewall); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 	return nil
@@ -414,7 +410,7 @@ func toHcloudFirewallResource(field map[string]interface{}) (hcloud.FirewallReso
 	if labelSelector, ok := field["label_selector"].(string); ok && labelSelector != "" {
 		return hcloud.FirewallResource{Type: hcloud.FirewallResourceTypeLabelSelector, LabelSelector: &hcloud.FirewallResourceLabelSelector{Selector: labelSelector}}, nil
 	} else if server, ok := field["server"].(int); ok && server != 0 {
-		return hcloud.FirewallResource{Type: hcloud.FirewallResourceTypeServer, Server: &hcloud.FirewallResourceServer{ID: server}}, nil
+		return hcloud.FirewallResource{Type: hcloud.FirewallResourceTypeServer, Server: &hcloud.FirewallResourceServer{ID: util.CastInt64(server)}}, nil
 	}
 	return hcloud.FirewallResource{}, fmt.Errorf("%s: unknown apply to resource", op)
 }
@@ -422,7 +418,7 @@ func toHcloudFirewallResource(field map[string]interface{}) (hcloud.FirewallReso
 func resourceFirewallDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	firewallID, err := strconv.Atoi(d.Id())
+	firewallID, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid firewall id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
@@ -430,12 +426,12 @@ func resourceFirewallDelete(ctx context.Context, d *schema.ResourceData, m inter
 	}
 	firewall, _, err := client.Firewall.GetByID(ctx, firewallID)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	// Detach all Resources of the firewall before trying to delete it.
 	if len(firewall.AppliedTo) > 0 {
 		if err := removeFromResources(ctx, client, d, firewall); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 	// Removing resources from the firewall can sometimes take longer. We
@@ -457,7 +453,7 @@ func resourceFirewallDelete(ctx context.Context, d *schema.ResourceData, m inter
 		return nil
 	})
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return nil
@@ -476,7 +472,7 @@ func removeFromResources(ctx context.Context, client *hcloud.Client, d *schema.R
 }
 
 func resourceFirewallIsNotFound(err error, d *schema.ResourceData) bool {
-	if hcerr, ok := err.(hcloud.Error); ok && hcerr.Code == hcloud.ErrorCodeNotFound {
+	if hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
 		log.Printf("[WARN] firewall (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return true
@@ -485,13 +481,7 @@ func resourceFirewallIsNotFound(err error, d *schema.ResourceData) bool {
 }
 
 func setFirewallSchema(d *schema.ResourceData, f *hcloud.Firewall) {
-	for key, val := range getFirewallAttributes(f) {
-		if key == "id" {
-			d.SetId(strconv.Itoa(val.(int)))
-		} else {
-			d.Set(key, val)
-		}
-	}
+	util.SetSchemaFromAttributes(d, getFirewallAttributes(f))
 }
 
 func getFirewallAttributes(f *hcloud.Firewall) map[string]interface{} {
@@ -521,8 +511,7 @@ func getFirewallAttributes(f *hcloud.Firewall) map[string]interface{} {
 
 func waitForFirewallActions(ctx context.Context, client *hcloud.Client, actions []*hcloud.Action, firewall *hcloud.Firewall) error {
 	log.Printf("[INFO] firewall (%d) waiting for %v actions to complete...", firewall.ID, len(actions))
-	_, errCh := client.Action.WatchOverallProgress(ctx, actions)
-	if err := <-errCh; err != nil {
+	if err := hcloudutil.WaitForActions(ctx, &client.Action, actions); err != nil {
 		return err
 	}
 	log.Printf("[INFO] firewall (%d) %v actions succeeded", firewall.ID, len(actions))

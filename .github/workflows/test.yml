@@ -1,76 +1,113 @@
 name: Test
 
 on:
+  push:
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+env:
+  GOTOOLCHAIN: local
 
 jobs:
-  integration:
-    name: Integration ${{ matrix.terraform }}
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - run: go test -v -timeout=30s -parallel=8 -coverprofile=coverage.txt -coverpkg=./... ./...
+
+      - uses: codecov/codecov-action@v5
+        if: >
+          !startsWith(github.head_ref, 'renovate/') &&
+          !startsWith(github.head_ref, 'release-please--')
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: unit
+
+  e2e:
+    if: >
+      github.event_name == 'push' ||
+      github.event.pull_request.draft == false
+    needs: [unit]
+    runs-on: ubuntu-latest
+
     permissions:
       id-token: write
-    runs-on: ubuntu-latest
+
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.tool }}-${{ matrix.version }}
+      cancel-in-progress: true
+
     strategy:
-      matrix:
-        terraform: [ v1.5.x, v1.6.x ]
       fail-fast: false
+      matrix:
+        include:
+          - tool: opentofu
+            version: v1.7.x
+          - tool: opentofu
+            version: v1.8.x
+          - tool: opentofu
+            version: v1.9.x
+          - tool: terraform
+            version: v1.9.x
+          - tool: terraform
+            version: v1.10.x
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Unshallow
-        run: git fetch --prune --unshallow
-      - uses: hashicorp/setup-terraform@v2
+      - uses: actions/checkout@v4
+
+      - if: matrix.tool == 'terraform'
+        uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ matrix.terraform }}
+          terraform_version: ${{ matrix.version }}
           terraform_wrapper: false
-      - name: Set up Go
-        uses: actions/setup-go@v4
+
+      - if: matrix.tool == 'opentofu'
+        uses: opentofu/setup-opentofu@v1
         with:
-          go-version: "1.21"
-      - name: HCLOUD_TOKEN
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-        run: |
-          echo "HCLOUD_TOKEN=$HCLOUD_TOKEN" >> "$GITHUB_ENV"
+          tofu_version: ${{ matrix.version }}
+          tofu_wrapper: false
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
 
       - uses: hetznercloud/tps-action@main
-        if: ${{ vars.USE_TPS }}
 
-      - name: check HCLOUD_TOKEN
+      - if: matrix.tool == 'opentofu'
         run: |
-          if [[ "${HCLOUD_TOKEN:-}" == "" ]]; then
-            echo "::error ::Couldn't determine HCLOUD_TOKEN. Are repository secrets correctly set?"
-            exit 1
-          fi
-      - name: Run tests
+          echo TF_ACC_TERRAFORM_PATH="$(which tofu)" >> $GITHUB_ENV
+          echo TF_ACC_PROVIDER_NAMESPACE="hashicorp" >> $GITHUB_ENV
+          echo TF_ACC_PROVIDER_HOST="registry.opentofu.org" >> $GITHUB_ENV
+
+      - run: go test -v -timeout=30m -parallel=8 -coverprofile=coverage.txt -coverpkg=./... ./...
         env:
-          # Domain must be available in the account running the tests. This domain is available in the account
-          # running the public integration tests.
+          # Domain must be available in the account running the tests. This domain is
+          # available in the account running the public integration tests.
           CERT_DOMAIN: hc-integrations-test.de
 
-          # Debug Logs
+          TF_ACC: 1
           TF_LOG: DEBUG
-          TF_LOG_PATH: test.log
-        run: |
-          make testacc
-          make
+          TF_LOG_PATH_MASK: test-%s.log
 
-      - uses: actions/upload-artifact@v3
-        if: always() # Also run if the tests failed
-        with:
-          name: debug-logs
-          path: internal/e2etests/**/test.log
+          TEST_DATACENTER: ${{ vars.TEST_DATACENTER }}
+          TEST_LOCATION: ${{ vars.TEST_LOCATION }}
 
-  unit_tests:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Unshallow
-        run: git fetch --prune --unshallow
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - uses: codecov/codecov-action@v5
+        if: >
+          !startsWith(github.head_ref, 'renovate/') &&
+          !startsWith(github.head_ref, 'releaser-pleaser--')
         with:
-          go-version: "1.21"
-      - name: Run tests
-        run: |
-          make test
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: e2e
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: debug-logs-${{ matrix.tool }}-${{ matrix.version }}
+          path: internal/**/test-*.log

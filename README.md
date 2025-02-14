@@ -1,14 +1,15 @@
 # Terraform Provider for the Hetzner Cloud
 
 [![GitHub release](https://img.shields.io/github/tag/hetznercloud/terraform-provider-hcloud.svg?label=release)](https://github.com/hetznercloud/terraform-provider-hcloud/releases/latest) [![Actions Status](https://github.com/hetznercloud/terraform-provider-hcloud/workflows/test/badge.svg)](https://github.com/hetznercloud/terraform-provider-hcloud/actions)[![Actions Status](https://github.com/hetznercloud/terraform-provider-hcloud/workflows/release/badge.svg)](https://github.com/hetznercloud/terraform-provider-hcloud/actions)
+[![Codecov](https://codecov.io/gh/hetznercloud/terraform-provider-hcloud/graph/badge.svg?token=og7OhpoV5W)](https://codecov.io/gh/hetznercloud/terraform-provider-hcloud/tree/main)
 
 - Documentation: https://registry.terraform.io/providers/hetznercloud/hcloud/latest/docs
 
 ## Requirements
 
-- [Terraform](https://developer.hashicorp.com/terraform/downloads)
-  - HashiCorp recommends to use the two latest terraform releases (1.5.x, 1.6.x). Our test suite validates that our provider works with these versions.
-  - This provider uses the [terraform plugin protocol version 6](https://developer.hashicorp.com/terraform/plugin/terraform-plugin-protocol#protocol-version-6), and should work with all tools (ie. Terraform & OpenTofu) that supports it.
+- [Terraform](https://developer.hashicorp.com/terraform/install) or [OpenTofu](https://opentofu.org/docs/intro/install/)
+  - Our provider tests run with Terraform or OpenTofu releases that are supported upstream.
+  - Our provider should work with any tool that supports the [terraform plugin protocol version 6](https://developer.hashicorp.com/terraform/plugin/terraform-plugin-protocol#protocol-version-6).
 - [Go](https://go.dev/doc/install) 1.21.x (to build the provider plugin)
 
 ## API Stability
@@ -69,4 +70,18 @@ _Note:_ Acceptance tests create real resources, and often cost money to run.
 
 ```
 $ make testacc
+```
+
+You may save your acceptance tests environment variables in the `.env` file, for example:
+
+```sh
+$ cat .env
+HCLOUD_TOKEN=YOUR_API_TEST_TOKEN
+#TF_ACC=1
+TF_LOG=DEBUG
+TF_LOG_PATH_MASK=test-%s.log
+
+$ go test -v -timeout=30m -parallel=8 ./internal/server
+=== RUN   TestAccHcloudDataSourceServerTest
+# ...
 ```

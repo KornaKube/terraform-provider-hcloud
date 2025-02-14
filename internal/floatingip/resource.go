@@ -3,14 +3,14 @@ package floatingip
 import (
 	"context"
 	"log"
-	"strconv"
 
 	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
 )
 
 // ResourceType is the type name of the Hetzner Cloud FloatingIP resource.
@@ -63,9 +63,9 @@ func Resource() *schema.Resource {
 			"labels": {
 				Type:     schema.TypeMap,
 				Optional: true,
-				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics {
+				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics { // nolint:revive
 					if ok, err := hcloud.ValidateResourceLabels(i.(map[string]interface{})); !ok {
-						return diag.Errorf(err.Error())
+						return diag.FromErr(err)
 					}
 					return nil
 				},
@@ -90,7 +90,7 @@ func resourceFloatingIPCreate(ctx context.Context, d *schema.ResourceData, m int
 		opts.Name = hcloud.Ptr(name.(string))
 	}
 	if serverID, ok := d.GetOk("server_id"); ok {
-		opts.Server = &hcloud.Server{ID: serverID.(int)}
+		opts.Server = &hcloud.Server{ID: util.CastInt64(serverID)}
 	}
 	if homeLocation, ok := d.GetOk("home_location"); ok {
 		opts.HomeLocation = &hcloud.Location{Name: homeLocation.(string)}
@@ -105,21 +105,20 @@ func resourceFloatingIPCreate(ctx context.Context, d *schema.ResourceData, m int
 
 	res, _, err := client.FloatingIP.Create(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
-	d.SetId(strconv.Itoa(res.FloatingIP.ID))
+	d.SetId(util.FormatID(res.FloatingIP.ID))
 	if res.Action != nil {
-		_, errCh := client.Action.WatchProgress(ctx, res.Action)
-		if err := <-errCh; err != nil {
-			return hcclient.ErrorToDiag(err)
+		if err := hcloudutil.WaitForAction(ctx, &client.Action, res.Action); err != nil {
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
 	deleteProtection := d.Get("delete_protection").(bool)
 	if deleteProtection {
 		if err := setProtection(ctx, client, res.FloatingIP, deleteProtection); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -129,7 +128,7 @@ func resourceFloatingIPCreate(ctx context.Context, d *schema.ResourceData, m int
 func resourceFloatingIPRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	id, err := strconv.Atoi(d.Id())
+	id, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid Floating IP id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
@@ -138,7 +137,7 @@ func resourceFloatingIPRead(ctx context.Context, d *schema.ResourceData, m inter
 
 	floatingIP, _, err := client.FloatingIP.GetByID(ctx, id)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if floatingIP == nil {
 		log.Printf("[WARN] Floating IP (%s) not found, removing from state", d.Id())
@@ -153,7 +152,7 @@ func resourceFloatingIPRead(ctx context.Context, d *schema.ResourceData, m inter
 func resourceFloatingIPUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	id, err := strconv.Atoi(d.Id())
+	id, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid Floating IP id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
@@ -172,7 +171,7 @@ func resourceFloatingIPUpdate(ctx context.Context, d *schema.ResourceData, m int
 			if resourceFloatingIPIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -185,22 +184,22 @@ func resourceFloatingIPUpdate(ctx context.Context, d *schema.ResourceData, m int
 			if resourceFloatingIPIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
 	if d.HasChange("server_id") {
-		serverID := d.Get("server_id").(int)
+		serverID := util.CastInt64(d.Get("server_id"))
 		if serverID == 0 {
 			action, _, err := client.FloatingIP.Unassign(ctx, floatingIP)
 			if err != nil {
 				if resourceFloatingIPIsNotFound(err, d) {
 					return nil
 				}
-				return hcclient.ErrorToDiag(err)
+				return hcloudutil.ErrorToDiag(err)
 			}
-			if err := hcclient.WaitForAction(ctx, &client.Action, action); err != nil {
-				return hcclient.ErrorToDiag(err)
+			if err := hcloudutil.WaitForAction(ctx, &client.Action, action); err != nil {
+				return hcloudutil.ErrorToDiag(err)
 			}
 		} else {
 			a, _, err := client.FloatingIP.Assign(ctx, floatingIP, &hcloud.Server{ID: serverID})
@@ -208,10 +207,10 @@ func resourceFloatingIPUpdate(ctx context.Context, d *schema.ResourceData, m int
 				if resourceFloatingIPIsNotFound(err, d) {
 					return nil
 				}
-				return hcclient.ErrorToDiag(err)
+				return hcloudutil.ErrorToDiag(err)
 			}
-			if err := hcclient.WaitForAction(ctx, &client.Action, a); err != nil {
-				return hcclient.ErrorToDiag(err)
+			if err := hcloudutil.WaitForAction(ctx, &client.Action, a); err != nil {
+				return hcloudutil.ErrorToDiag(err)
 			}
 		}
 	}
@@ -228,14 +227,14 @@ func resourceFloatingIPUpdate(ctx context.Context, d *schema.ResourceData, m int
 			if resourceFloatingIPIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
 	if d.HasChange("delete_protection") {
 		deletionProtection := d.Get("delete_protection").(bool)
 		if err := setProtection(ctx, client, floatingIP, deletionProtection); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -247,25 +246,25 @@ func resourceFloatingIPUpdate(ctx context.Context, d *schema.ResourceData, m int
 func resourceFloatingIPDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	floatingIPID, err := strconv.Atoi(d.Id())
+	floatingIPID, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid Floating IP id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
 		return nil
 	}
 	if _, err := client.FloatingIP.Delete(ctx, &hcloud.FloatingIP{ID: floatingIPID}); err != nil {
-		if hcerr, ok := err.(hcloud.Error); ok && hcerr.Code == hcloud.ErrorCodeNotFound {
+		if hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
 			// server has already been deleted
 			return nil
 		}
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return nil
 }
 
 func resourceFloatingIPIsNotFound(err error, d *schema.ResourceData) bool {
-	if hcerr, ok := err.(hcloud.Error); ok && hcerr.Code == hcloud.ErrorCodeNotFound {
+	if hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
 		log.Printf("[WARN] Floating IP (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return true
@@ -274,13 +273,7 @@ func resourceFloatingIPIsNotFound(err error, d *schema.ResourceData) bool {
 }
 
 func setFloatingIPSchema(d *schema.ResourceData, f *hcloud.FloatingIP) {
-	for key, val := range getFloatingIPAttributes(f) {
-		if key == "id" {
-			d.SetId(strconv.Itoa(val.(int)))
-		} else {
-			d.Set(key, val)
-		}
-	}
+	util.SetSchemaFromAttributes(d, getFloatingIPAttributes(f))
 }
 
 func getFloatingIPAttributes(f *hcloud.FloatingIP) map[string]interface{} {
@@ -305,15 +298,15 @@ func getFloatingIPAttributes(f *hcloud.FloatingIP) map[string]interface{} {
 	return res
 }
 
-func setProtection(ctx context.Context, c *hcloud.Client, f *hcloud.FloatingIP, delete bool) error {
+func setProtection(ctx context.Context, c *hcloud.Client, f *hcloud.FloatingIP, deleteProtection bool) error {
 	action, _, err := c.FloatingIP.ChangeProtection(ctx, f,
 		hcloud.FloatingIPChangeProtectionOpts{
-			Delete: &delete,
+			Delete: &deleteProtection,
 		},
 	)
 	if err != nil {
 		return err
 	}
 
-	return hcclient.WaitForAction(ctx, &c.Action, action)
+	return hcloudutil.WaitForAction(ctx, &c.Action, action)
 }

@@ -2,20 +2,18 @@ package image
 
 import (
 	"context"
-	"crypto/sha1"
-	"fmt"
 	"log"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/merge"
 )
 
 const (
@@ -88,7 +86,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 func DataSource() *schema.Resource {
 	return &schema.Resource{
 		ReadContext: dataSourceHcloudImageRead,
-		Schema: datasourceutil.MergeSchema(
+		Schema: merge.Maps(
 			getCommonDataSchema(),
 			map[string]*schema.Schema{
 				"most_recent": {
@@ -167,9 +165,9 @@ func DataSourceList() *schema.Resource {
 func dataSourceHcloudImageRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 	if id, ok := d.GetOk("id"); ok {
-		i, _, err := client.Image.GetByID(ctx, id.(int))
+		i, _, err := client.Image.GetByID(ctx, util.CastInt64(id))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if i == nil {
 			return diag.Errorf("no image found with id %d", id)
@@ -222,7 +220,7 @@ func dataSourceHcloudImageRead(ctx context.Context, d *schema.ResourceData, m in
 
 	allImages, err := client.Image.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if len(allImages) == 0 {
 		return diag.Errorf("no image found matching the selection")
@@ -260,7 +258,7 @@ func dataSourceHcloudImageListRead(ctx context.Context, d *schema.ResourceData, 
 	}
 	allImages, err := client.Image.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	if _, ok := d.GetOk("most_recent"); ok {
@@ -270,11 +268,11 @@ func dataSourceHcloudImageListRead(ctx context.Context, d *schema.ResourceData, 
 	ids := make([]string, len(allImages))
 	tfImages := make([]map[string]interface{}, len(allImages))
 	for i, image := range allImages {
-		ids[i] = strconv.Itoa(image.ID)
+		ids[i] = util.FormatID(image.ID)
 		tfImages[i] = getImageAttributes(image)
 	}
 	d.Set("images", tfImages)
-	d.SetId(fmt.Sprintf("%x", sha1.Sum([]byte(strings.Join(ids, "")))))
+	d.SetId(datasourceutil.ListID(ids))
 
 	return nil
 }
@@ -286,13 +284,7 @@ func sortImageListByCreated(imageList []*hcloud.Image) {
 }
 
 func setImageSchema(d *schema.ResourceData, i *hcloud.Image) {
-	for key, val := range getImageAttributes(i) {
-		if key == "id" {
-			d.SetId(strconv.Itoa(val.(int)))
-		} else {
-			d.Set(key, val)
-		}
-	}
+	util.SetSchemaFromAttributes(d, getImageAttributes(i))
 }
 
 func getImageAttributes(i *hcloud.Image) map[string]interface{} {

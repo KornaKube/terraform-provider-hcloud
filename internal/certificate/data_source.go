@@ -2,16 +2,16 @@ package certificate
 
 import (
 	"context"
-	"crypto/sha1"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/merge"
 )
 
 const (
@@ -77,7 +77,7 @@ func getCommonDataSchema() map[string]*schema.Schema {
 func DataSource() *schema.Resource {
 	return &schema.Resource{
 		ReadContext: dataSourceHcloudCertificateRead,
-		Schema: datasourceutil.MergeSchema(
+		Schema: merge.Maps(
 			getCommonDataSchema(),
 			map[string]*schema.Schema{
 				"with_selector": {
@@ -112,9 +112,9 @@ func dataSourceHcloudCertificateRead(ctx context.Context, d *schema.ResourceData
 	client := m.(*hcloud.Client)
 
 	if id, ok := d.GetOk("id"); ok {
-		cert, _, err := client.Certificate.GetByID(ctx, id.(int))
+		cert, _, err := client.Certificate.GetByID(ctx, util.CastInt64(id))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if cert == nil {
 			return diag.Errorf("certificate not found: id: %d", id)
@@ -125,7 +125,7 @@ func dataSourceHcloudCertificateRead(ctx context.Context, d *schema.ResourceData
 	if name, ok := d.GetOk("name"); ok {
 		cert, _, err := client.Certificate.Get(ctx, name.(string))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if cert == nil {
 			return diag.Errorf("certificate not found: name: %s", name)
@@ -142,13 +142,13 @@ func dataSourceHcloudCertificateRead(ctx context.Context, d *schema.ResourceData
 		}
 		allCertificates, err := client.Certificate.AllWithOpts(ctx, opts)
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if len(allCertificates) == 0 {
-			return hcclient.ErrorToDiag(fmt.Errorf("no Certificate found for selector %q", selector))
+			return hcloudutil.ErrorToDiag(fmt.Errorf("no Certificate found for selector %q", selector))
 		}
 		if len(allCertificates) > 1 {
-			return hcclient.ErrorToDiag(fmt.Errorf("more than one Certificate found for selector %q", selector))
+			return hcloudutil.ErrorToDiag(fmt.Errorf("more than one Certificate found for selector %q", selector))
 		}
 		setCertificateSchema(d, allCertificates[0])
 		return nil
@@ -168,17 +168,17 @@ func dataSourceHcloudCertificateListRead(ctx context.Context, d *schema.Resource
 	}
 	allCertificates, err := client.Certificate.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	ids := make([]string, len(allCertificates))
 	tfCertificates := make([]map[string]interface{}, len(allCertificates))
 	for i, certificate := range allCertificates {
-		ids[i] = strconv.Itoa(certificate.ID)
+		ids[i] = util.FormatID(certificate.ID)
 		tfCertificates[i] = getCertificateAttributes(certificate)
 	}
 	d.Set("certificates", tfCertificates)
-	d.SetId(fmt.Sprintf("%x", sha1.Sum([]byte(strings.Join(ids, "")))))
+	d.SetId(datasourceutil.ListID(ids))
 
 	return nil
 }

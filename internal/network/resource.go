@@ -4,15 +4,15 @@ import (
 	"context"
 	"log"
 	"net"
-	"strconv"
 
 	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
 )
 
 // ResourceType is the type name of the Hetzner Cloud Network resource.
@@ -43,9 +43,9 @@ func Resource() *schema.Resource {
 			"labels": {
 				Type:     schema.TypeMap,
 				Optional: true,
-				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics {
+				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics { // nolint:revive
 					if ok, err := hcloud.ValidateResourceLabels(i.(map[string]interface{})); !ok {
-						return diag.Errorf(err.Error())
+						return diag.FromErr(err)
 					}
 					return nil
 				},
@@ -70,7 +70,7 @@ func resourceNetworkCreate(ctx context.Context, d *schema.ResourceData, m interf
 
 	_, ipRange, err := net.ParseCIDR(d.Get("ip_range").(string))
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	opts := hcloud.NetworkCreateOpts{
@@ -88,15 +88,15 @@ func resourceNetworkCreate(ctx context.Context, d *schema.ResourceData, m interf
 
 	network, _, err := client.Network.Create(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
-	d.SetId(strconv.Itoa(network.ID))
+	d.SetId(util.FormatID(network.ID))
 
 	deleteProtection := d.Get("delete_protection").(bool)
 	if deleteProtection {
 		if err := setProtection(ctx, client, network, deleteProtection); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -111,7 +111,7 @@ func resourceNetworkRead(ctx context.Context, d *schema.ResourceData, m interfac
 		if resourceNetworkIsNotFound(err, d) {
 			return nil
 		}
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if network == nil {
 		d.SetId("")
@@ -126,7 +126,7 @@ func resourceNetworkUpdate(ctx context.Context, d *schema.ResourceData, m interf
 
 	network, _, err := client.Network.Get(ctx, d.Id())
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if network == nil {
 		d.SetId("")
@@ -143,7 +143,7 @@ func resourceNetworkUpdate(ctx context.Context, d *schema.ResourceData, m interf
 			if resourceNetworkIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 	if d.HasChange("labels") {
@@ -159,7 +159,7 @@ func resourceNetworkUpdate(ctx context.Context, d *schema.ResourceData, m interf
 			if resourceNetworkIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -171,14 +171,14 @@ func resourceNetworkUpdate(ctx context.Context, d *schema.ResourceData, m interf
 			if resourceNetworkIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
 	if d.HasChange("delete_protection") {
 		deletionProtection := d.Get("delete_protection").(bool)
 		if err := setProtection(ctx, client, network, deletionProtection); err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -190,7 +190,7 @@ func resourceNetworkUpdate(ctx context.Context, d *schema.ResourceData, m interf
 func resourceNetworkDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	networkID, err := strconv.Atoi(d.Id())
+	networkID, err := util.ParseID(d.Id())
 
 	if err != nil {
 		log.Printf("[WARN] invalid network id (%s), removing from state: %v", d.Id(), err)
@@ -202,14 +202,14 @@ func resourceNetworkDelete(ctx context.Context, d *schema.ResourceData, m interf
 			// network has already been deleted
 			return nil
 		}
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return nil
 }
 
 func resourceNetworkIsNotFound(err error, d *schema.ResourceData) bool {
-	if hcerr, ok := err.(hcloud.Error); ok && hcerr.Code == hcloud.ErrorCodeNotFound {
+	if hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
 		log.Printf("[WARN] Network (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return true
@@ -218,13 +218,7 @@ func resourceNetworkIsNotFound(err error, d *schema.ResourceData) bool {
 }
 
 func setNetworkSchema(d *schema.ResourceData, n *hcloud.Network) {
-	for key, val := range getNetworkAttributes(n) {
-		if key == "id" {
-			d.SetId(strconv.Itoa(val.(int)))
-		} else {
-			d.Set(key, val)
-		}
-	}
+	util.SetSchemaFromAttributes(d, getNetworkAttributes(n))
 }
 
 func getNetworkAttributes(n *hcloud.Network) map[string]interface{} {
@@ -238,15 +232,15 @@ func getNetworkAttributes(n *hcloud.Network) map[string]interface{} {
 	}
 }
 
-func setProtection(ctx context.Context, c *hcloud.Client, n *hcloud.Network, delete bool) error {
+func setProtection(ctx context.Context, c *hcloud.Client, n *hcloud.Network, deleteProtection bool) error {
 	action, _, err := c.Network.ChangeProtection(ctx, n,
 		hcloud.NetworkChangeProtectionOpts{
-			Delete: &delete,
+			Delete: &deleteProtection,
 		},
 	)
 	if err != nil {
 		return err
 	}
 
-	return hcclient.WaitForAction(ctx, &c.Action, action)
+	return hcloudutil.WaitForAction(ctx, &c.Action, action)
 }

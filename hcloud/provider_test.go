@@ -3,23 +3,20 @@ package hcloud
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/certificate"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/datacenter"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/firewall"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/floatingip"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/image"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/loadbalancer"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/location"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/network"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/placementgroup"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/primaryip"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/rdns"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/server"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/servertype"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/snapshot"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/sshkey"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/volume"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestProvider(t *testing.T) {
@@ -50,7 +47,6 @@ func TestProvider_Resources(t *testing.T) {
 		server.NetworkResourceType,
 		server.ResourceType,
 		snapshot.ResourceType,
-		sshkey.ResourceType,
 		volume.AttachmentResourceType,
 		volume.ResourceType,
 		placementgroup.ResourceType,
@@ -69,8 +65,6 @@ func TestProvider_DataSources(t *testing.T) {
 	expectedDataSources := []string{
 		certificate.DataSourceType,
 		certificate.DataSourceListType,
-		datacenter.DataSourceType,
-		datacenter.DataSourceListType,
 		firewall.DataSourceType,
 		firewall.DataSourceListType,
 		floatingip.DataSourceType,
@@ -81,18 +75,12 @@ func TestProvider_DataSources(t *testing.T) {
 		image.DataSourceListType,
 		loadbalancer.DataSourceType,
 		loadbalancer.DataSourceListType,
-		location.DataSourceType,
-		location.DataSourceListType,
 		network.DataSourceType,
 		network.DataSourceListType,
 		placementgroup.DataSourceType,
 		placementgroup.DataSourceListType,
 		server.DataSourceType,
 		server.DataSourceListType,
-		servertype.DataSourceType,
-		servertype.DataSourceListType,
-		sshkey.DataSourceType,
-		sshkey.DataSourceListType,
 		volume.DataSourceType,
 		volume.DataSourceListType,
 	}

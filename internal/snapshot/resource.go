@@ -3,13 +3,14 @@ package snapshot
 import (
 	"context"
 	"log"
-	"strconv"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
 )
 
 // ResourceType is the type name of the Hetzner Cloud Snapshot resource.
@@ -49,7 +50,7 @@ func Resource() *schema.Resource {
 func resourceSnapshotCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	serverID := d.Get("server_id").(int)
+	serverID := util.CastInt64(d.Get("server_id"))
 	opts := hcloud.ServerCreateImageOpts{
 		Type:        hcloud.ImageTypeSnapshot,
 		Description: hcloud.Ptr(d.Get("description").(string)),
@@ -65,14 +66,13 @@ func resourceSnapshotCreate(ctx context.Context, d *schema.ResourceData, m inter
 
 	res, _, err := client.Server.CreateImage(ctx, &hcloud.Server{ID: serverID}, &opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
-	d.SetId(strconv.Itoa(res.Image.ID))
+	d.SetId(util.FormatID(res.Image.ID))
 	if res.Action != nil {
-		_, errCh := client.Action.WatchProgress(ctx, res.Action)
-		if err := <-errCh; err != nil {
-			return hcclient.ErrorToDiag(err)
+		if err := hcloudutil.WaitForAction(ctx, &client.Action, res.Action); err != nil {
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -82,7 +82,7 @@ func resourceSnapshotCreate(ctx context.Context, d *schema.ResourceData, m inter
 func resourceSnapshotRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	id, err := strconv.Atoi(d.Id())
+	id, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid Snapshot id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
@@ -91,7 +91,7 @@ func resourceSnapshotRead(ctx context.Context, d *schema.ResourceData, m interfa
 
 	snapshot, _, err := client.Image.GetByID(ctx, id)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if snapshot == nil {
 		log.Printf("[WARN] Snapshot (%s) not found, removing from state", d.Id())
@@ -111,7 +111,7 @@ func resourceSnapshotRead(ctx context.Context, d *schema.ResourceData, m interfa
 func resourceSnapshotUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	id, err := strconv.Atoi(d.Id())
+	id, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid Snapshot id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
@@ -130,7 +130,7 @@ func resourceSnapshotUpdate(ctx context.Context, d *schema.ResourceData, m inter
 			if resourceSnapshotIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 
@@ -147,7 +147,7 @@ func resourceSnapshotUpdate(ctx context.Context, d *schema.ResourceData, m inter
 			if resourceSnapshotIsNotFound(err, d) {
 				return nil
 			}
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 	}
 	d.Partial(false)
@@ -158,25 +158,25 @@ func resourceSnapshotUpdate(ctx context.Context, d *schema.ResourceData, m inter
 func resourceSnapshotDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*hcloud.Client)
 
-	imageID, err := strconv.Atoi(d.Id())
+	imageID, err := util.ParseID(d.Id())
 	if err != nil {
 		log.Printf("[WARN] invalid Snapshot id (%s), removing from state: %v", d.Id(), err)
 		d.SetId("")
 		return nil
 	}
 	if _, err := client.Image.Delete(ctx, &hcloud.Image{ID: imageID}); err != nil {
-		if hcerr, ok := err.(hcloud.Error); ok && hcerr.Code == hcloud.ErrorCodeNotFound {
+		if hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
 			// server has already been deleted
 			return nil
 		}
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return nil
 }
 
 func resourceSnapshotIsNotFound(err error, d *schema.ResourceData) bool {
-	if hcerr, ok := err.(hcloud.Error); ok && hcerr.Code == hcloud.ErrorCodeNotFound {
+	if hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
 		log.Printf("[WARN] Snapshot (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return true
@@ -185,9 +185,9 @@ func resourceSnapshotIsNotFound(err error, d *schema.ResourceData) bool {
 }
 
 func setSnapshotSchema(d *schema.ResourceData, s *hcloud.Image) {
-	d.SetId(strconv.Itoa(s.ID))
+	d.SetId(util.FormatID(s.ID))
 	if s.CreatedFrom != nil {
-		d.Set("server_id", s.CreatedFrom.ID)
+		d.Set("server_id", util.CastInt(s.CreatedFrom.ID))
 	}
 	d.Set("description", s.Description)
 	d.Set("labels", s.Labels)

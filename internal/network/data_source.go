@@ -2,17 +2,15 @@ package network
 
 import (
 	"context"
-	"crypto/sha1"
-	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
 	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/datasourceutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/merge"
 )
 
 const (
@@ -34,14 +32,17 @@ func getCommonDataSchema() map[string]*schema.Schema {
 		"name": {
 			Type:     schema.TypeString,
 			Optional: true,
+			Computed: true,
 		},
 		"ip_range": {
 			Type:     schema.TypeString,
 			Optional: true,
+			Computed: true,
 		},
 		"labels": {
 			Type:     schema.TypeMap,
 			Optional: true,
+			Computed: true,
 		},
 		"delete_protection": {
 			Type:     schema.TypeBool,
@@ -59,12 +60,13 @@ func getCommonDataSchema() map[string]*schema.Schema {
 func DataSource() *schema.Resource {
 	return &schema.Resource{
 		ReadContext: dataSourceHcloudNetworkRead,
-		Schema: datasourceutil.MergeSchema(
+		Schema: merge.Maps(
 			getCommonDataSchema(),
 			map[string]*schema.Schema{
 				"most_recent": {
-					Type:     schema.TypeBool,
-					Optional: true,
+					Type:       schema.TypeBool,
+					Optional:   true,
+					Deprecated: "This attribute has no purpose.",
 				},
 				"with_selector": {
 					Type:     schema.TypeString,
@@ -98,9 +100,9 @@ func dataSourceHcloudNetworkRead(ctx context.Context, d *schema.ResourceData, m 
 	client := m.(*hcloud.Client)
 
 	if id, ok := d.GetOk("id"); ok {
-		n, _, err := client.Network.GetByID(ctx, id.(int))
+		n, _, err := client.Network.GetByID(ctx, util.CastInt64(id))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if n == nil {
 			return diag.Errorf("no network found with id %d", id)
@@ -111,7 +113,7 @@ func dataSourceHcloudNetworkRead(ctx context.Context, d *schema.ResourceData, m 
 	if name, ok := d.GetOk("name"); ok {
 		n, _, err := client.Network.GetByName(ctx, name.(string))
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if n == nil {
 			return diag.Errorf("no network found with name %s", name)
@@ -131,7 +133,7 @@ func dataSourceHcloudNetworkRead(ctx context.Context, d *schema.ResourceData, m 
 		}
 		allNetworks, err := client.Network.AllWithOpts(ctx, opts)
 		if err != nil {
-			return hcclient.ErrorToDiag(err)
+			return hcloudutil.ErrorToDiag(err)
 		}
 		if len(allNetworks) == 0 {
 			return diag.Errorf("no network found for selector %q", selector)
@@ -157,17 +159,17 @@ func dataSourceHcloudNetworkListRead(ctx context.Context, d *schema.ResourceData
 	}
 	allNetworks, err := client.Network.AllWithOpts(ctx, opts)
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	ids := make([]string, len(allNetworks))
 	tsNetworks := make([]map[string]interface{}, len(allNetworks))
 	for i, firewall := range allNetworks {
-		ids[i] = strconv.Itoa(firewall.ID)
+		ids[i] = util.FormatID(firewall.ID)
 		tsNetworks[i] = getNetworkAttributes(firewall)
 	}
 	d.Set("networks", tsNetworks)
-	d.SetId(fmt.Sprintf("%x", sha1.Sum([]byte(strings.Join(ids, "")))))
+	d.SetId(datasourceutil.ListID(ids))
 
 	return nil
 }

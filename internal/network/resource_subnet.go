@@ -6,17 +6,16 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hetznercloud/hcloud-go/hcloud"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/control"
-	"github.com/hetznercloud/terraform-provider-hcloud/internal/hcclient"
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/control"
+	"github.com/hetznercloud/terraform-provider-hcloud/internal/util/hcloudutil"
 )
 
 // SubnetResourceType is the type name of the Hetzner Cloud Network Subnet resource.
@@ -78,10 +77,10 @@ func resourceNetworkSubnetCreate(ctx context.Context, d *schema.ResourceData, m 
 
 	_, ipRange, err := net.ParseCIDR(d.Get("ip_range").(string))
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	networkID := d.Get("network_id")
-	network := &hcloud.Network{ID: networkID.(int)}
+	network := &hcloud.Network{ID: util.CastInt64(networkID)}
 
 	subnetType := hcloud.NetworkSubnetType(d.Get("type").(string))
 	opts := hcloud.NetworkAddSubnetOpts{
@@ -94,7 +93,7 @@ func resourceNetworkSubnetCreate(ctx context.Context, d *schema.ResourceData, m 
 
 	if subnetType == hcloud.NetworkSubnetTypeVSwitch {
 		vSwitchID := d.Get("vswitch_id")
-		opts.Subnet.VSwitchID = vSwitchID.(int)
+		opts.Subnet.VSwitchID = util.CastInt64(vSwitchID)
 	}
 
 	err = control.Retry(control.DefaultRetries, func() error {
@@ -110,12 +109,12 @@ func resourceNetworkSubnetCreate(ctx context.Context, d *schema.ResourceData, m 
 		return control.AbortRetry(err)
 	})
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	d.SetId(generateNetworkSubnetID(network, ipRange.String()))
 
-	if err := hcclient.WaitForAction(ctx, &c.Action, a); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, a); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 
 	return resourceNetworkSubnetRead(ctx, d, m)
@@ -125,13 +124,13 @@ func resourceNetworkSubnetRead(ctx context.Context, d *schema.ResourceData, m in
 	client := m.(*hcloud.Client)
 
 	network, subnet, err := lookupNetworkSubnetID(ctx, d.Id(), client)
-	if err == errInvalidNetworkSubnetID {
+	if errors.Is(err, errInvalidNetworkSubnetID) {
 		log.Printf("[WARN] Invalid id (%s), removing from state: %s", d.Id(), err)
 		d.SetId("")
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
 	if network == nil {
 		log.Printf("[WARN] Network Subnet (%s) not found, removing from state", d.Id())
@@ -168,7 +167,8 @@ func resourceNetworkSubnetDelete(ctx context.Context, d *schema.ResourceData, m 
 		if hcloud.IsError(err, hcloud.ErrorCodeConflict) || hcloud.IsError(err, hcloud.ErrorCodeLocked) {
 			return err
 		}
-		if hcloud.IsError(err, hcloud.ErrorCodeServiceError) && strings.Contains(err.Error(), "servers are attached") {
+		if hcloud.IsError(err, hcloud.ErrorCodeServiceError) &&
+			(strings.Contains(err.Error(), "servers are attached") || strings.Contains(err.Error(), "network has attached resources")) {
 			return err
 		}
 		return control.AbortRetry(err)
@@ -177,16 +177,17 @@ func resourceNetworkSubnetDelete(ctx context.Context, d *schema.ResourceData, m 
 		d.SetId("")
 		return nil
 	}
-	if hcloud.IsError(err, hcloud.ErrorCodeServiceError) && strings.Contains(err.Error(), "servers are attached") {
-		log.Printf("[WARN] Network Subnet (%s) has still servers attached. We assume that the network will be deleted fully, removing from state", d.Id())
+	if hcloud.IsError(err, hcloud.ErrorCodeServiceError) &&
+		(strings.Contains(err.Error(), "servers are attached") || strings.Contains(err.Error(), "network has attached resources")) {
+		log.Printf("[WARN] Network Subnet (%s) has still resources attached. We assume that the network will be deleted fully, removing from state", d.Id())
 		d.SetId("")
 		return nil
 	}
 	if err != nil {
-		return hcclient.ErrorToDiag(err)
+		return hcloudutil.ErrorToDiag(err)
 	}
-	if err := hcclient.WaitForAction(ctx, &c.Action, a); err != nil {
-		return hcclient.ErrorToDiag(err)
+	if err := hcloudutil.WaitForAction(ctx, &c.Action, a); err != nil {
+		return hcloudutil.ErrorToDiag(err)
 	}
 	return nil
 }
@@ -212,7 +213,7 @@ func generateNetworkSubnetID(network *hcloud.Network, ipRange string) string {
 // The faux subnet ID is created by the hcloud_network_subnet resource
 // during creation. Using this method it can be read from the state and
 // used in the implementation of other resources.
-func ParseSubnetID(s string) (int, *net.IPNet, error) {
+func ParseSubnetID(s string) (int64, *net.IPNet, error) {
 	if s == "" {
 		return 0, nil, errInvalidNetworkSubnetID
 	}
@@ -221,7 +222,7 @@ func ParseSubnetID(s string) (int, *net.IPNet, error) {
 		return 0, nil, errInvalidNetworkSubnetID
 	}
 
-	networkID, err := strconv.Atoi(parts[0])
+	networkID, err := util.ParseID(parts[0])
 	if err != nil {
 		return 0, nil, errInvalidNetworkSubnetID
 	}

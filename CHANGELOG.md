@@ -1,5 +1,115 @@
 # Changelog
 
+## [v1.50.0-rc.0](https://github.com/hetznercloud/terraform-provider-hcloud/releases/tag/v1.50.0-rc.0)
+
+In this release, we upgraded the underlying Hetzner Cloud API client ([hcloud-go](https://github.com/hetznercloud/hcloud-go)) for the entire provider, which involves risk of breakage. Please make sure to test this new version before using it on production environments.
+
+### Features
+
+- drop support for terraform v1.8 (#1066)
+- add support for terraform v1.10 (#1067)
+- add support for opentofu v1.9 (#1071)
+
+### Bug Fixes
+
+- upgrade hcloud-go to v2 (#1062)
+
+## [1.49.1](https://github.com/hetznercloud/terraform-provider-hcloud/compare/v1.49.0...v1.49.1) (2024-11-21)
+
+
+### Bug Fixes
+
+* remove server network interface workaround ([#1021](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1021)) ([be330df](https://github.com/hetznercloud/terraform-provider-hcloud/commit/be330dfbd721b32e337c188c863c97667f021f65))
+
+## [1.49.0](https://github.com/hetznercloud/terraform-provider-hcloud/compare/v1.48.1...v1.49.0) (2024-11-07)
+
+
+### Features
+
+* add data.load_balancer_type(s) data sources ([#991](https://github.com/hetznercloud/terraform-provider-hcloud/issues/991)) ([ef60613](https://github.com/hetznercloud/terraform-provider-hcloud/commit/ef60613cf649c60a04663011180eae9318afba7b))
+* add support for opentofu v1.8 ([#1029](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1029)) ([c7902de](https://github.com/hetznercloud/terraform-provider-hcloud/commit/c7902deb659c39ae1f00352ac967d22b9e98e169))
+* drop support for opentofu v1.6 ([#1030](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1030)) ([8c448dd](https://github.com/hetznercloud/terraform-provider-hcloud/commit/8c448dd02b3bdcbc881825fc18ea7163cecda22a))
+
+
+### Bug Fixes
+
+* do not retry deleting a protected primary ip ([#1015](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1015)) ([e9de286](https://github.com/hetznercloud/terraform-provider-hcloud/commit/e9de2865836bef8d4f4e9604d2d8c83c5a7cd12e)), closes [#1014](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1014)
+* **primary-ip:** conflict when deleting IP ([#994](https://github.com/hetznercloud/terraform-provider-hcloud/issues/994)) ([0873fb1](https://github.com/hetznercloud/terraform-provider-hcloud/commit/0873fb1580bf33334bc266a508d42a94486c20c5))
+
+## [1.48.1](https://github.com/hetznercloud/terraform-provider-hcloud/compare/v1.48.0...v1.48.1) (2024-09-06)
+
+
+### Bug Fixes
+
+* missing deprecation info in server type list data source ([#984](https://github.com/hetznercloud/terraform-provider-hcloud/issues/984)) ([c12560e](https://github.com/hetznercloud/terraform-provider-hcloud/commit/c12560ebbb1c5ed131f84154a9463e8d4ea7ab2a))
+
+## [1.48.0](https://github.com/hetznercloud/terraform-provider-hcloud/compare/v1.47.0...v1.48.0) (2024-07-25)
+
+
+### Features
+
+* add support for opentofu v1.7 ([#950](https://github.com/hetznercloud/terraform-provider-hcloud/issues/950)) ([ae115a8](https://github.com/hetznercloud/terraform-provider-hcloud/commit/ae115a8c26cc16c3dea5faf2226617036e7bcb8b))
+* add support for terraform v1.9 ([#949](https://github.com/hetznercloud/terraform-provider-hcloud/issues/949)) ([642ac15](https://github.com/hetznercloud/terraform-provider-hcloud/commit/642ac1511689df6bd4dbc8a8e29e1c19a2fd8bd9))
+* drop support for terraform v1.7.x ([#947](https://github.com/hetznercloud/terraform-provider-hcloud/issues/947)) ([f6372aa](https://github.com/hetznercloud/terraform-provider-hcloud/commit/f6372aacf6e8d47839bbfa6101476f6e0c1c6125))
+* **server-type:** mark included_traffic attribute as deprecated ([#963](https://github.com/hetznercloud/terraform-provider-hcloud/issues/963)) ([e8101cc](https://github.com/hetznercloud/terraform-provider-hcloud/commit/e8101ccff942ffe3406a6e9ca5a07c3f7fc34a2d))
+
+
+### Bug Fixes
+
+* do not continue if an api error occurred ([#958](https://github.com/hetznercloud/terraform-provider-hcloud/issues/958)) ([85a4dd0](https://github.com/hetznercloud/terraform-provider-hcloud/commit/85a4dd0c3390cb533fafa5d982d3faff6749aa7d))
+* **load-balancer:** automatic import of target adds conflicting fields ([#962](https://github.com/hetznercloud/terraform-provider-hcloud/issues/962)) ([6c0b1c4](https://github.com/hetznercloud/terraform-provider-hcloud/commit/6c0b1c42c9eee68f1e6dbc1854fb0f8ec00fbfab)), closes [#961](https://github.com/hetznercloud/terraform-provider-hcloud/issues/961)
+
+## [1.47.0](https://github.com/hetznercloud/terraform-provider-hcloud/compare/v1.46.1...v1.47.0) (2024-05-02)
+
+
+### Features
+
+* test with Terraform 1.8 ([#919](https://github.com/hetznercloud/terraform-provider-hcloud/issues/919)) ([800a66c](https://github.com/hetznercloud/terraform-provider-hcloud/commit/800a66c0b9e61337b86a58f3ce7ab478fad391b6))
+
+
+### Bug Fixes
+
+* **ssh-key:** data inconsistency with empty label objects ([#922](https://github.com/hetznercloud/terraform-provider-hcloud/issues/922)) ([7e1bf2c](https://github.com/hetznercloud/terraform-provider-hcloud/commit/7e1bf2cd6c80c0a86d06b293e7d325e8986d5b3f)), closes [#921](https://github.com/hetznercloud/terraform-provider-hcloud/issues/921)
+* **subnet:** handle new error message for deleting subnets with attached resources ([#923](https://github.com/hetznercloud/terraform-provider-hcloud/issues/923)) ([932c47b](https://github.com/hetznercloud/terraform-provider-hcloud/commit/932c47b8c626898fae47f07b4c161d0206561fb1))
+
+## [1.46.1](https://github.com/hetznercloud/terraform-provider-hcloud/compare/v1.46.0...v1.46.1) (2024-04-05)
+
+
+### Bug Fixes
+
+* **server:** cannot update placement group ([#902](https://github.com/hetznercloud/terraform-provider-hcloud/issues/902)) ([fa5f98c](https://github.com/hetznercloud/terraform-provider-hcloud/commit/fa5f98cf4e0c62249b14694ad2db59a5baf8fe30))
+
+## [1.46.0](https://github.com/hetznercloud/terraform-provider-hcloud/compare/v1.45.0...v1.46.0) (2024-03-26)
+
+
+### Features
+
+* **firewall:** set IPs without prefix directly ([#874](https://github.com/hetznercloud/terraform-provider-hcloud/issues/874)) ([40df28d](https://github.com/hetznercloud/terraform-provider-hcloud/commit/40df28d79dd192ef39edb51dfd6c4a6626d6413b)), closes [#807](https://github.com/hetznercloud/terraform-provider-hcloud/issues/807) [#715](https://github.com/hetznercloud/terraform-provider-hcloud/issues/715)
+* support terraform v1.7.x ([#845](https://github.com/hetznercloud/terraform-provider-hcloud/issues/845)) ([a5229f4](https://github.com/hetznercloud/terraform-provider-hcloud/commit/a5229f492c5cee0bede74354ad697c452bd55211))
+
+
+### Bug Fixes
+
+* add api request status code in error diagnostics ([#839](https://github.com/hetznercloud/terraform-provider-hcloud/issues/839)) ([3689ade](https://github.com/hetznercloud/terraform-provider-hcloud/commit/3689ade53f2706f48bda4b3c14577b5bc9deadf3))
+* **firewall:** unnecessary diff if user specified non-minimal IPv6 ([40df28d](https://github.com/hetznercloud/terraform-provider-hcloud/commit/40df28d79dd192ef39edb51dfd6c4a6626d6413b)), closes [#870](https://github.com/hetznercloud/terraform-provider-hcloud/issues/870)
+* return after error in datacenter data source ([#847](https://github.com/hetznercloud/terraform-provider-hcloud/issues/847)) ([bfac734](https://github.com/hetznercloud/terraform-provider-hcloud/commit/bfac734e1eefc135e3e1001c70904e93a7927859))
+* **server:** unable to attach two new networks ([#901](https://github.com/hetznercloud/terraform-provider-hcloud/issues/901)) ([df177e2](https://github.com/hetznercloud/terraform-provider-hcloud/commit/df177e285aba803ca117a639097f0745baa54a05)), closes [#899](https://github.com/hetznercloud/terraform-provider-hcloud/issues/899)
+
+## [1.45.0](https://github.com/hetznercloud/terraform-provider-hcloud/compare/v1.44.1...v1.45.0) (2024-01-11)
+
+
+### Features
+
+* **provider:** choose between constant & exponential backoff for actions ([#798](https://github.com/hetznercloud/terraform-provider-hcloud/issues/798)) ([fa7ea1f](https://github.com/hetznercloud/terraform-provider-hcloud/commit/fa7ea1f167750e64cc9ebbb26ce0eb8171d55df6))
+* **server:** add `primary_disk_size` attribute in resource and datasource ([#801](https://github.com/hetznercloud/terraform-provider-hcloud/issues/801)) ([98c2f2d](https://github.com/hetznercloud/terraform-provider-hcloud/commit/98c2f2d01bcdb08fcf5d564a774b1f2d60124296))
+
+
+### Bug Fixes
+
+* **network:** mark data source fields as computed ([#805](https://github.com/hetznercloud/terraform-provider-hcloud/issues/805)) ([63e157c](https://github.com/hetznercloud/terraform-provider-hcloud/commit/63e157c42185b06cb2f9714014f564e9383a6976))
+* **placement-group:** mark data source fields as computed ([#806](https://github.com/hetznercloud/terraform-provider-hcloud/issues/806)) ([53069ac](https://github.com/hetznercloud/terraform-provider-hcloud/commit/53069ac9f4df7d6dc18567c61a92eba11afebd53))
+* **server:** missing field primary_disk_size ([#811](https://github.com/hetznercloud/terraform-provider-hcloud/issues/811)) ([9bd0ef0](https://github.com/hetznercloud/terraform-provider-hcloud/commit/9bd0ef0c1d005f00436567f4520b3354940fc041))
+
 ## [1.44.1](https://github.com/hetznercloud/terraform-provider-hcloud/compare/v1.44.0...v1.44.1) (2023-10-05)
 
 
